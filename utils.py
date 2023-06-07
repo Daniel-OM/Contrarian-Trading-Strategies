@@ -4,11 +4,12 @@ import datetime as dt
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import yfinance as yf
+import plotly.graph_objects as go
 import requests
+import yfinance as yf
+from plotly.subplots import make_subplots
 
-assets = ['EURUSD', 'USDCHF', 'GBPUSD', 'AUDUSD', 'USDCAD', 'XAUUSD', 'XAGUSD', 'NI225', 'SP500m'] 
-     
+
 def getData(asset:str, tf:str='1h', start:str=None, end:str=None):
 
     '''
@@ -75,9 +76,14 @@ def indices():
     return indices
 
 def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy', 
-                sell_column:str='Sell', long_result_col:str='Long', 
-                short_result_col:str='Short', total_result_col:str='Total'
+                sell_column:str='Short', long_result_col:str='LongResult', 
+                short_result_col:str='ShortResult', total_result_col:str='Total'
                 ) -> pd.DataFrame:
+    
+    sell = []
+    cover = []
+    long_result = []
+    short_result = []
     
     # Check long trades result
     for i,idx in enumerate(data.index):
@@ -91,7 +97,10 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
                 new_d = next.loc[a]
                 if new_d[buy_column] == 1 or new_d[sell_column] == -1:
                     # Store result
-                    new_d[long_result_col] = new_d[open_price] - d[open_price]
+                    long_result.append(new_d[open_price] - d[open_price])
+                    sell.append(1)
+                    short_result.append(0)
+                    cover.append(0)
                     break
 
         # If there was a sell order
@@ -99,11 +108,31 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
             for a in next.index:
                 new_d = next.loc[a]
                 if new_d[buy_column] == 1 or new_d[sell_column] == -1:
-                    new_d[short_result_col] = d[open_price] - new_d[open_price]
+                    short_result.append(d[open_price] - new_d[open_price])
+                    cover.append(-1)
+                    long_result.append(0)
+                    sell.append(0)
                     break
+
+        else:
+            sell.append(0)
+            cover.append(0)
+            long_result.append(0)
+            short_result.append(0)
+            
+    data['Sell'] = sell[len(sell) - len(data):] if len(sell) > len(data) \
+                    else [0]*(len(data) - len(sell)) + sell
+    data['Cover'] = cover[len(cover) - len(data):] if len(cover) > len(data) \
+                    else [0]*(len(data) - len(cover)) + cover
+            
+    data[long_result_col] = long_result[len(long_result) - len(data):] if len(long_result) > len(data) \
+                    else [0]*(len(data) - len(long_result)) + long_result
+    data[short_result_col] = short_result[len(short_result) - len(data):] if len(short_result) > len(data) \
+                    else [0]*(len(data) - len(short_result)) + short_result
         
     # Aggregating the long & short results into one column
     data[total_result_col] = data[long_result_col] + data[short_result_col]  
+    data['Cum'+total_result_col] = data[total_result_col].cumsum()
     
     # Profit factor    
     total_net_profits = data[total_result_col][data[total_result_col] > 0]
@@ -113,7 +142,7 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
 
     # Hit ratio    
     hit_ratio = len(total_net_profits) / (len(total_net_losses) + len(total_net_profits))
-    hit_ratio = hit_ratio * 100
+    hit_ratio = hit_ratio
     
     # Risk reward ratio
     average_gain = total_net_profits.mean()
@@ -123,10 +152,11 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
     # Number of trades
     trades = len(total_net_losses) + len(total_net_profits)
         
-    print('Hit Ratio         = ', hit_ratio)
-    print('Profit factor     = ', profit_factor) 
-    print('Realized RR       = ', round(realized_risk_reward, 3))
     print('Number of Trades  = ', trades)    
+    print('Profit factor     = ', profit_factor) 
+    print('Hit Ratio         = ', hit_ratio * 100)
+    print('Realized RR       = ', round(realized_risk_reward, 3))
+    print('Expectancy        = ', hit_ratio*average_gain - (1-hit_ratio)*average_loss)
    
     return data
 
@@ -141,6 +171,50 @@ def ma(data:pd.DataFrame, lookback:int, close:str='Close', name:str='MA'):
     
     return data
 
+def signalChart(df:pd.DataFrame, asset:str='', indicators:list=[]):
+
+    fig = make_subplots(rows=1, cols=1)
+
+    fig.add_trace(go.Candlestick(x=df.index,open=df['Open'],high=df['High'],low=df['Low'],close=df['Close'], 
+                                name='Price'), row=1, col=1)
+    
+    # Plot indicators
+    for ind in indicators:
+        fig.add_trace(go.Scatter(x=df.index,y=df[ind],name=ind))
+
+    # Long trades
+    fig.add_trace(go.Scatter(x=df.index[df['Buy'] > 0], y=df['Open'][df['Buy'] > 0], 
+                            name='Buy', marker_color='green', marker_symbol='triangle-right', 
+                            marker_size=15, mode='markers'), 
+                row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df.index[df['Sell'] > 0], y=df['Open'][df['Sell'] > 0], 
+                            name='Sell', marker_color='green', marker_symbol='triangle-left', 
+                            marker_size=15, mode='markers'), 
+                row=1, col=1)
+
+    # Short trades
+    fig.add_trace(go.Scatter(x=df.index[df['Short'] < 0], y=df['Open'][df['Short'] < 0], 
+                            name='Short', marker_color='red', marker_symbol='triangle-right', 
+                            marker_size=15, mode='markers'), 
+                row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df.index[df['Cover'] < 0], y=df['Open'][df['Cover'] < 0], 
+                            name='Cover', marker_color='red', marker_symbol='triangle-left', 
+                            marker_size=15, mode='markers'), 
+                row=1, col=1)
+
+    fig.update_yaxes(title_text='Price', row=1, col=1)
+    fig.update_xaxes(title_text='Date', row=1, col=1)
+    fig.update_layout(title=f"Price {asset}", autosize=False,
+                        xaxis_rangeslider_visible=False,
+                        width=1000,
+                        height=700)
+
+    fig.show()
+
+    return fig
+
 if __name__ == '__main__':
 
-    data = mass_import('QQQ')['data']
+    data = getData('QQQ')['data']
