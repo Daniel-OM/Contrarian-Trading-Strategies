@@ -63,12 +63,10 @@ class PrimaryIndicators:
         self.df = self.ind.bollingerBands(n=n, method='s', desvi=desvi, datatype='Close', dataname='BB')
         
         self.df['Buy'] = np.where((self.df['Close'] < self.df['BBDN']) & \
-                                  (self.df['Close'].shift(1) > self.df['BBDN'].shift(1)) & \
-                                    self.long, 
+                                  (self.df['Close'].shift(1) > self.df['BBDN'].shift(1)),
                                     1, 0)
         self.df['Short'] = np.where((self.df['Close'] > self.df['BBUP']) & \
-                                    (self.df['Close'].shift(1) < self.df['BBUP'].shift(1)) & \
-                                    self.short, 
+                                    (self.df['Close'].shift(1) < self.df['BBUP'].shift(1)),
                                     -1, 0)
         
         if self.backtest:
@@ -76,7 +74,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'trend','name':'BBUP'}, 
                                                               {'type':'trend','name':'BBDN'}])
@@ -105,13 +103,11 @@ class PrimaryIndicators:
 
         self.df['Buy'] = np.where((self.df['Close'] > self.df['BBDN']) & \
                                   (self.df['Close'].shift(1) < self.df['BBDN'].shift(1)) & \
-                                   (self.df['Close'] < self.df['BBDN']+self.df['BBW']/2) & \
-                                    self.long, 
+                                   (self.df['Close'] < self.df['BBDN']+self.df['BBW']/2),
                                     1, 0)
         self.df['Short'] = np.where((self.df['Close'] < self.df['BBUP']) & \
                                   (self.df['Close'].shift(1) > self.df['BBUP'].shift(1)) & \
-                                   (self.df['Close'] > self.df['BBDN']+self.df['BBW']/2) & \
-                                    self.short, 
+                                   (self.df['Close'] > self.df['BBDN']+self.df['BBW']/2),
                                     -1, 0)
         
         if self.backtest:
@@ -119,7 +115,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'trend','name':'BBUP'}, 
                                                               {'type':'trend','name':'BBDN'}])
@@ -172,7 +168,7 @@ class PrimaryIndicators:
                                 higher_low['PctBB'] > candle['PctBB']:
                                 for l in range(k+1, i+width if i+width < max_i else max_i):
                                     if lower < self.df.iloc[l]['PctBB']:
-                                        buy.append(1 if self.long else 0)
+                                        buy.append(1)
                                         short.append(0)
                                         done = True
                                         break
@@ -194,7 +190,7 @@ class PrimaryIndicators:
                                 for l in range(k+1, i+width if i+width < max_i else max_i):
                                     if upper > self.df.iloc[l]['PctBB']:
                                         buy.append(0)
-                                        short.append(-1 if self.short else 0)
+                                        short.append(-1)
                                         done = True
                                         break
                             if done:
@@ -214,7 +210,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'PctBB'}])
 
@@ -243,12 +239,10 @@ class PrimaryIndicators:
         self.df = self.ind.rsi(n=n, method='s', datatype='Close', dataname='RSI')
 
         self.df['Buy'] = np.where((self.df['RSI'] < lower) & \
-                                  (self.df['RSI'].shift(1) > lower) & \
-                                    self.long, 
+                                  (self.df['RSI'].shift(1) > lower),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] > upper) & \
-                                  (self.df['RSI'].shift(1) < upper) & \
-                                    self.short, 
+                                  (self.df['RSI'].shift(1) < upper),
                                     -1, 0)
         
         if self.backtest:
@@ -256,7 +250,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -285,12 +279,10 @@ class PrimaryIndicators:
         self.df = self.ind.rsi(n=n, method='s', datatype='Close', dataname='RSI')
 
         self.df['Buy'] = np.where((self.df['RSI'] > lower) & \
-                                  (self.df['RSI'].shift(1) < lower) & \
-                                    self.long, 
+                                  (self.df['RSI'].shift(1) < lower),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] < upper) & \
-                                  (self.df['RSI'].shift(1) > upper) & \
-                                    self.short, 
+                                  (self.df['RSI'].shift(1) > upper),
                                     -1, 0)
         
         if self.backtest:
@@ -298,7 +290,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -331,13 +323,11 @@ class PrimaryIndicators:
 
         self.df['Buy'] = np.where((self.df['RSI'] < lower) & \
                                   (self.df['Close'].shift(1) < self.df['MA'].shift(1)) & \
-                                  (self.df['Close'] > self.df['MA']) & \
-                                  self.long, 
+                                  (self.df['Close'] > self.df['MA']),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] > upper) & \
                                   (self.df['Close'].shift(1) > self.df['MA'].shift(1)) & \
-                                  (self.df['Close'] < self.df['MA']) & \
-                                  self.short, 
+                                  (self.df['Close'] < self.df['MA']),
                                     -1, 0)
         
         if self.backtest:
@@ -345,7 +335,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'},
                                                               {'type':'trend','name':'MA'}])
@@ -395,7 +385,7 @@ class PrimaryIndicators:
                                 higher_low['RSI'] > candle['RSI']:
                                 for l in range(k+1, i+width if i+width < max_i else max_i):
                                     if lower < self.df.iloc[l]['RSI']:
-                                        buy.append(1 if self.long else 0)
+                                        buy.append(1)
                                         short.append(0)
                                         done = True
                                         break
@@ -417,7 +407,7 @@ class PrimaryIndicators:
                                 for l in range(k+1, i+width if i+width < max_i else max_i):
                                     if upper > self.df.iloc[l]['RSI']:
                                         buy.append(0)
-                                        short.append(-1 if self.short else 0)
+                                        short.append(-1)
                                         done = True
                                         break
                             if done:
@@ -437,7 +427,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -470,16 +460,14 @@ class PrimaryIndicators:
                                   (self.df['RSI'].shift(2) < lower) & \
                                   (self.df['RSI'].shift(3) < lower) & \
                                   (self.df['RSI'].shift(4) < lower) & \
-                                  (self.df['RSI'].shift(5) < lower) & \
-                                  self.long, 
+                                  (self.df['RSI'].shift(5) < lower),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] < upper) & \
                                   (self.df['RSI'].shift(1) > upper) & \
                                   (self.df['RSI'].shift(2) > upper) & \
                                   (self.df['RSI'].shift(3) > upper) & \
                                   (self.df['RSI'].shift(4) > upper) & \
-                                  (self.df['RSI'].shift(5) > upper) & \
-                                  self.short, 
+                                  (self.df['RSI'].shift(5) > upper),
                                     -1, 0)
         
         if self.backtest:
@@ -487,7 +475,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -516,12 +504,10 @@ class PrimaryIndicators:
         self.df = self.ind.rsi(n=n, method='s', datatype='Close', dataname='RSI')
 
         self.df['Buy'] = np.where((self.df['RSI'] < lower) & \
-                                  (self.df['RSI'].shift(1) > lower) & \
-                                  self.long, 
+                                  (self.df['RSI'].shift(1) > lower),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] > upper) & \
-                                  (self.df['RSI'].shift(1) < upper) & \
-                                  self.short, 
+                                  (self.df['RSI'].shift(1) < upper),
                                     -1, 0)
         
         if self.backtest:
@@ -529,7 +515,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -562,16 +548,14 @@ class PrimaryIndicators:
                                   (self.df['RSI'].shift(2) > lower) & \
                                   (self.df['RSI'].shift(3) < lower) & \
                                   (self.df['RSI'].shift(4) > lower) & \
-                                  (self.df['RSI'].shift(1) < self.df['RSI'].shift(3)) & \
-                                  self.long, 
+                                  (self.df['RSI'].shift(1) < self.df['RSI'].shift(3)),
                                     1, 0)
         self.df['Short'] = np.where((self.df['RSI'] < upper) & \
                                   (self.df['RSI'].shift(1) > upper) & \
                                   (self.df['RSI'].shift(2) < upper) & \
                                   (self.df['RSI'].shift(3) > upper) & \
                                   (self.df['RSI'].shift(4) < upper) & \
-                                  (self.df['RSI'].shift(1) > self.df['RSI'].shift(3)) & \
-                                  self.short, 
+                                  (self.df['RSI'].shift(1) > self.df['RSI'].shift(3)),
                                     -1, 0)
         
         if self.backtest:
@@ -579,18 +563,18 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
         return self.df
     
-    def rsiReversal(self, n:int=5, lower:float=30.0, upper:float=70.0, 
+    def rsiReversal(self, n:int=5, lower:float=50.0, upper:float=50.0, 
                     tolerance:float=3, perf:bool=True, plot:bool=True
                     ) -> pd.DataFrame:
 
         '''
-        Buy when the RSI crosses upwards the lower level.
+        Buy when the RSI crosses the lower level for just one period.
 
         Parameters
         ----------
@@ -608,21 +592,13 @@ class PrimaryIndicators:
 
         self.df = self.ind.rsi(n=n, method='s', datatype='Close', dataname='RSI')
 
-        self.df['Buy'] = np.where((self.df['RSI'] > lower) & \
-                                  (self.df['RSI'].shift(1) < lower) & \
-                                  (self.df['RSI'].shift(2) > lower) & \
-                                  (self.df['RSI'].shift(3) < lower) & \
-                                  (self.df['RSI'].shift(4) > lower) & \
-                                  (self.df['RSI'].shift(1) < self.df['RSI'].shift(3)) & \
-                                  self.long, 
+        self.df['Buy'] = np.where((self.df['RSI'] >= lower) & \
+                                  (self.df['RSI'].shift(1) <= lower+tolerance) & \
+                                  (self.df['RSI'].shift(2) >= self.df['RSI']),
                                     1, 0)
-        self.df['Short'] = np.where((self.df['RSI'] < upper) & \
-                                  (self.df['RSI'].shift(1) > upper) & \
-                                  (self.df['RSI'].shift(2) < upper) & \
-                                  (self.df['RSI'].shift(3) > upper) & \
-                                  (self.df['RSI'].shift(4) < upper) & \
-                                  (self.df['RSI'].shift(1) > self.df['RSI'].shift(3)) & \
-                                  self.short, 
+        self.df['Short'] = np.where((self.df['RSI'] <= upper) & \
+                                  (self.df['RSI'].shift(1) >= lower-tolerance) & \
+                                  (self.df['RSI'].shift(2) <= self.df['RSI']),
                                     -1, 0)
         
         if self.backtest:
@@ -630,7 +606,7 @@ class PrimaryIndicators:
             self.df['Short'] = self.df['Short'].shift(1).fillna(0)
 
             if perf:
-                self.df = performance(self.df)
+                self.df = performance(self.df, self.long, self.short)
             if plot:
                 signalChart(self.df, asset=asset, indicators=[{'type':'oscillator','name':'RSI'}])
 
@@ -645,5 +621,5 @@ if __name__ == '__main__':
     data = getData(asset, tf='1d')['data']
 
     pi = PrimaryIndicators(data, long=True, short=False, backtest=True)
-    data = pi.rsiM(lower=40 ,upper=60 ,plot=True)
+    data = pi.rsiReversal(lower=40 ,upper=60 ,plot=True)
 

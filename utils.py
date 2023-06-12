@@ -75,7 +75,7 @@ def indices():
 
     return indices
 
-def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy', 
+def performance_old(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy', 
                 sell_column:str='Short', long_result_col:str='LongResult', 
                 short_result_col:str='ShortResult', total_result_col:str='Total'
                 ) -> pd.DataFrame:
@@ -162,6 +162,114 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
    
     return data
 
+def performance(data:pd.DataFrame, long:bool=True, short:bool=True, 
+                open_price:str='Open', buy_column:str='Buy', 
+                short_column:str='Short', long_result_col:str='LongResult', 
+                short_result_col:str='ShortResult', total_result_col:str='Total'
+                ) -> pd.DataFrame:
+    
+    sell = []
+    cover = []
+    long_result = []
+    short_result = []
+    
+    position = {'side': 0, 'size':0, 'open':[]}
+    # Check long trades result
+    for i,idx in enumerate(data.index):
+        d = data.iloc[i] # Current candle
+        print(position)
+        # If there was a buy order
+        if d[buy_column] == 1:
+            if position['side'] <= 0:
+                if position['side'] == 0:
+                    long_result.append(0)
+                    sell.append(0)
+                else:
+                    long_result.append(d['Close'] - sum(position['open'])/position['size'])
+                    sell.append(1)
+                short_result.append(0)
+                cover.append(0)
+                if long:
+                    position = {'side':1, 'size': 1, 'open':[d['Close']]}
+                else:
+                    position = {'side': 0, 'size':0, 'open':[]}
+            elif position['side'] > 0 and long:
+                position['size'] = position['size']+1
+                position['open'] = position['open'].append(d['Close'])
+                long_result.append(0)
+                sell.append(0)
+                short_result.append(0)
+                cover.append(0)
+
+        # If there was a sell order
+        elif d[short_column] == -1:  
+            if position['side'] >= 0:
+                if position['side'] == 0:
+                    short_result.append(0)
+                    cover.append(0)
+                else:
+                    short_result.append(sum(position['open'])/position['size'] - d['Close'])
+                    cover.append(1)
+                long_result.append(0)
+                sell.append(0)
+                if long:
+                    position = {'side':-1, 'size': 1, 'open':[d['Close']]}
+                else:
+                    position = {'side': 0, 'size':0, 'open':[]}
+            elif position['side'] < 0 and short:
+                position['size'] = position['size']+1
+                position['open'] = position['open'].append(d['Close'])
+                long_result.append(0)
+                sell.append(0)
+                short_result.append(0)
+                cover.append(0)
+
+        else:
+            sell.append(0)
+            cover.append(0)
+            long_result.append(0)
+            short_result.append(0)
+            
+    data['Sell'] = sell[len(sell) - len(data):] if len(sell) > len(data) \
+                    else [0]*(len(data) - len(sell)) + sell
+    data['Cover'] = cover[len(cover) - len(data):] if len(cover) > len(data) \
+                    else [0]*(len(data) - len(cover)) + cover
+            
+    data[long_result_col] = long_result[len(long_result) - len(data):] if len(long_result) > len(data) \
+                    else [0]*(len(data) - len(long_result)) + long_result
+    data[short_result_col] = short_result[len(short_result) - len(data):] if len(short_result) > len(data) \
+                    else [0]*(len(data) - len(short_result)) + short_result
+        
+    # Aggregating the long & short results into one column
+    data[total_result_col] = data[long_result_col] + data[short_result_col]  
+    data['Cum'+total_result_col] = data[total_result_col].cumsum()
+    
+    # Profit factor    
+    total_net_profits = data[total_result_col][data[total_result_col] > 0]
+    total_net_losses = data[total_result_col][data[total_result_col] < 0]
+    total_net_losses = abs(total_net_losses)
+    profit_factor = round(np.sum(total_net_profits) / np.sum(total_net_losses), 2)
+
+    # Hit ratio    
+    hit_ratio = len(total_net_profits) / (len(total_net_losses) + len(total_net_profits))
+    hit_ratio = hit_ratio
+    
+    # Risk reward ratio
+    average_gain = total_net_profits.mean()
+    average_loss = total_net_losses.mean()
+    realized_risk_reward = average_gain / average_loss
+
+    # Number of trades
+    trades = len(total_net_losses) + len(total_net_profits)
+        
+    print('Number of Trades  = ', trades)    
+    print('Profit factor     = ', profit_factor) 
+    print('Hit Ratio         = ', hit_ratio * 100)
+    print('Realized RR       = ', round(realized_risk_reward, 3))
+    print('Expectancy        = ', (hit_ratio*average_gain - (1-hit_ratio)*average_loss) *100,'%')
+   
+    return data
+
 def ma(data:pd.DataFrame, lookback:int, close:str='Close', name:str='MA'): 
 
     if not isinstance(data, pd.DataFrame):
@@ -193,26 +301,28 @@ def signalChart(df:pd.DataFrame, asset:str='', indicators:list=[]):
             fig.add_trace(go.Scatter(x=df.index,y=df[ind['name']],name=ind['name']), row=1, col=1)
 
     # Long trades
-    fig.add_trace(go.Scatter(x=df.index[df['Buy'] > 0], y=df['Open'][df['Buy'] > 0], 
-                            name='Buy', marker_color='green', marker_symbol='triangle-right', 
-                            marker_size=15, mode='markers'), 
-                row=1, col=1)
+    if 'Sell' in df.columns:
+        fig.add_trace(go.Scatter(x=df.index[df['Buy'] > 0], y=df['Open'][df['Buy'] > 0], 
+                                name='Buy', marker_color='green', marker_symbol='triangle-right', 
+                                marker_size=15, mode='markers'), 
+                    row=1, col=1)
 
-    fig.add_trace(go.Scatter(x=df.index[df['Sell'] > 0], y=df['Open'][df['Sell'] > 0], 
-                            name='Sell', marker_color='green', marker_symbol='triangle-left', 
-                            marker_size=15, mode='markers'), 
-                row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index[df['Sell'] > 0], y=df['Open'][df['Sell'] > 0], 
+                                name='Sell', marker_color='green', marker_symbol='triangle-left', 
+                                marker_size=15, mode='markers'), 
+                    row=1, col=1)
 
     # Short trades
-    fig.add_trace(go.Scatter(x=df.index[df['Short'] < 0], y=df['Open'][df['Short'] < 0], 
-                            name='Short', marker_color='red', marker_symbol='triangle-right', 
-                            marker_size=15, mode='markers'), 
-                row=1, col=1)
+    if 'Cover' in df.columns:
+        fig.add_trace(go.Scatter(x=df.index[df['Short'] < 0], y=df['Open'][df['Short'] < 0], 
+                                name='Short', marker_color='red', marker_symbol='triangle-right', 
+                                marker_size=15, mode='markers'), 
+                    row=1, col=1)
 
-    fig.add_trace(go.Scatter(x=df.index[df['Cover'] < 0], y=df['Open'][df['Cover'] < 0], 
-                            name='Cover', marker_color='red', marker_symbol='triangle-left', 
-                            marker_size=15, mode='markers'), 
-                row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index[df['Cover'] < 0], y=df['Open'][df['Cover'] < 0], 
+                                name='Cover', marker_color='red', marker_symbol='triangle-left', 
+                                marker_size=15, mode='markers'), 
+                    row=1, col=1)
 
     fig.update_yaxes(title_text='Price', row=1, col=1)
     fig.update_xaxes(title_text='Date', row=rows, col=1)
