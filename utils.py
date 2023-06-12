@@ -104,10 +104,12 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
                     break
 
         # If there was a sell order
-        elif d[sell_column] == -1:    
+        elif d[sell_column] == -1:  
+            # Check for the next buy order  
             for a in next.index:
                 new_d = next.loc[a]
                 if new_d[buy_column] == 1 or new_d[sell_column] == -1:
+                    # Store result
                     short_result.append(d[open_price] - new_d[open_price])
                     cover.append(-1)
                     long_result.append(0)
@@ -156,7 +158,7 @@ def performance(data:pd.DataFrame, open_price:str='Open', buy_column:str='Buy',
     print('Profit factor     = ', profit_factor) 
     print('Hit Ratio         = ', hit_ratio * 100)
     print('Realized RR       = ', round(realized_risk_reward, 3))
-    print('Expectancy        = ', hit_ratio*average_gain - (1-hit_ratio)*average_loss)
+    print('Expectancy        = ', (hit_ratio*average_gain - (1-hit_ratio)*average_loss) *100,'%')
    
     return data
 
@@ -173,14 +175,22 @@ def ma(data:pd.DataFrame, lookback:int, close:str='Close', name:str='MA'):
 
 def signalChart(df:pd.DataFrame, asset:str='', indicators:list=[]):
 
-    fig = make_subplots(rows=1, cols=1)
+    rows = len([i for i in indicators if i['type'] == 'oscillator'])+1
+    heights = [5] + [1] * (rows-1)
+
+    fig = make_subplots(rows=rows, cols=1, row_heights=heights, shared_xaxes=True, vertical_spacing=0)
 
     fig.add_trace(go.Candlestick(x=df.index,open=df['Open'],high=df['High'],low=df['Low'],close=df['Close'], 
                                 name='Price'), row=1, col=1)
     
     # Plot indicators
+    c = 2
     for ind in indicators:
-        fig.add_trace(go.Scatter(x=df.index,y=df[ind],name=ind))
+        if ind['type'] == 'oscillator':
+            fig.add_trace(go.Scatter(x=df.index,y=df[ind['name']],name=ind['name']), row=c, col=1)
+            c += 1
+        else:
+            fig.add_trace(go.Scatter(x=df.index,y=df[ind['name']],name=ind['name']), row=1, col=1)
 
     # Long trades
     fig.add_trace(go.Scatter(x=df.index[df['Buy'] > 0], y=df['Open'][df['Buy'] > 0], 
@@ -205,7 +215,7 @@ def signalChart(df:pd.DataFrame, asset:str='', indicators:list=[]):
                 row=1, col=1)
 
     fig.update_yaxes(title_text='Price', row=1, col=1)
-    fig.update_xaxes(title_text='Date', row=1, col=1)
+    fig.update_xaxes(title_text='Date', row=rows, col=1)
     fig.update_layout(title=f"Price {asset}", autosize=False,
                         xaxis_rangeslider_visible=False,
                         width=1000,
