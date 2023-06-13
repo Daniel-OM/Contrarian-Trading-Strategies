@@ -23,7 +23,7 @@ class Charts:
 
         self.ohlc_df = df
 
-    def heiken_ashi(self,openHA:bool=False, drop:bool=False):
+    def heiken_ashi(self,openHA:bool=False):
 
         '''
         Function to obtain the Heiken Ashi candles.
@@ -33,9 +33,6 @@ class Charts:
         openHA: bool
             If True the candle Open will be based on the previous Heiken Ashi candle, 
             else it will be based on the original previous candle Open.
-        drop: bool
-            If True the raw data will be replaced by the new data, if False new columns
-            will be added with the raw data name and the suffix "HA".
 
         Returns
         -------
@@ -49,25 +46,25 @@ class Charts:
             
             # Create the Close column
             s = len(self.ohlc_df['Close'].tolist())
-            ha_Close = [np.nan]*s
+            HAClose = [np.nan]*s
             for i in range(s):
                 if i == 0:
-                    ha_Close[i] = self.ohlc_df['Close'].tolist()[i]
+                    HAClose[i] = self.ohlc_df['Close'].tolist()[i]
                 else:
-                    ha_Close[i] = (self.ohlc_df['Open'].tolist()[i] + \
+                    HAClose[i] = (self.ohlc_df['Open'].tolist()[i] + \
                                   self.ohlc_df['Close'].tolist()[i] + \
                                   self.ohlc_df['High'].tolist()[i] + \
                                   self.ohlc_df['Low'].tolist()[i]) / 4
-            self.ohlc_df['HAClose'] = ha_Close
+            self.ohlc_df['HAClose'] = HAClose
 
             # Create the Open column
-            ha_Open = [np.nan]*s
+            HAOpen = [np.nan]*s
             for i in range(s):
                 if i == 0:
-                    ha_Open[i] = self.ohlc_df['Open'].tolist()[i]
+                    HAOpen[i] = self.ohlc_df['Open'].tolist()[i]
                 else:
-                    ha_Open[i] = (ha_Close[i-1]+ha_Open[i-1])/2
-            self.ohlc_df['HAOpen'] = ha_Open
+                    HAOpen[i] = (HAClose[i-1]+HAOpen[i-1])/2
+            self.ohlc_df['HAOpen'] = HAOpen
 
         # If Open based on the original previous candle
         else:
@@ -79,12 +76,9 @@ class Charts:
                                 np.where(self.ohlc_df['HAOpen']>self.ohlc_df['High'],self.ohlc_df['HAOpen'],self.ohlc_df['High']))
         self.ohlc_df['HALow'] = np.where(self.ohlc_df['HAClose']<self.ohlc_df['HAOpen'],np.where(self.ohlc_df['HAClose']<self.ohlc_df['Low'],self.ohlc_df['HAClose'],self.ohlc_df['Low']),
                                 np.where(self.ohlc_df['HAOpen']<self.ohlc_df['Low'],self.ohlc_df['HAOpen'],self.ohlc_df['Low']))
-        
-        if drop:
-            self.ohlc_df = self.ohlc_df.drop(['Open','Close','High','Low'],axis=1)
-            self.ohlc_df.rename(columns={'HAOpen':'Open','HAClose':'Close',
-                                         'HAHigh':'High','HALow':'Low'}, inplace=True)
+        #self.ohlc_df = self.ohlc_df.drop(['Open','Close','High','Low'],axis=1)
 
+        
         return self.ohlc_df
 
 
@@ -97,7 +91,7 @@ class Indicators:
     Class with all the indicators.
     '''
 
-    def __init__(self, standarized_data:pd.DataFrame):
+    def __init__(self, ohlc:pd.DataFrame=None):
 
         '''
         Function initiate the Indicators class.
@@ -110,9 +104,15 @@ class Indicators:
             'High' and the low column 'Low
         '''
 
+        if ohlc != None and isinstance(ohlc, pd.DataFrame):
+            self.ohlc_df = ohlc
 
-        self.ohlc_df = standarized_data
-
+    def labelCheck(self, label:str) -> None:
+        
+        if label not in self.df.columns:
+            raise ValueError('The column name is not in the DataFrame. These ' + \
+                             f'are the valid column names: {self.df.columns}')
+        
     def fibSequence(self, n:int) -> int:
 
         '''
@@ -609,7 +609,6 @@ class Indicators:
             df = new_df.copy()
     
         # Calculamos los datos principales
-        df = self.ohlc_df.copy()
         df = self.efficiencyRatio(n=n, datatype=datatype, dataname='ER', 
                                   new_df=df)
         df['SC'] = (df['ER']*(2.0/(scf+1.0)-2.0/(scs+1.0))+2.0/(scs+1.0))**2.0
@@ -1001,13 +1000,13 @@ class Indicators:
             df = df.drop(['TempMA'],axis=1)
             return df
 
-    def pctBollinger(self, n:int=20, method:str='s', desvi:float=2., 
-                     datatype='Close', dataname:str='%BB', 
-                     new_df:pd.DataFrame=None) -> pd.DataFrame:
+    def pctBollinger(self, n:int=20, desvi:float=2., datatype='Close', 
+                      dataname:str='%BB', new_df:pd.DataFrame=None
+                      ) -> pd.DataFrame:
 
         '''
         Calculates the percentage of the Bollinger Bands where the price 
-        is from the lower band. To get the upper band just do 1 - data.
+        is from the upper band.
 
         Parameters
         ----------
@@ -1043,17 +1042,17 @@ class Indicators:
             df = new_df.copy()
 
         # Calculamos las bandas de bollinger
-        df = self.bollingerBands(n, method, desvi, datatype=datatype, 
-                                      dataname='TempBB', new_df=df)
+        df = self.bollingerBands(n, desvi, datatype, datatype=datatype, 
+                                      dataname='BB', new_df=df)
         # Calculamos el porcentaje en el que se encuentra el precio desde la banda superior respecto el ancho de la banda
-        df[dataname] = (df[datatype] - df['TempBBDN'])/df['TempBBW']*100
+        df[dataname] = df[datatype] - df['BBUP']/df['BBW']*100
         
         if not isinstance(new_df, pd.DataFrame):
             self.ohlc_df[dataname] = df[dataname]
             return self.ohlc_df
         
         else:
-            df = df.drop(['TempBBUP', 'TempBBDN', 'TempBBW'],axis=1)
+            df = df.drop(['BBUP', 'BBDN', 'BBW'],axis=1)
             return df
 
     def macd(self, a:int=12, b:int=26, c:int=9, method:str='e', 
@@ -2833,3 +2832,78 @@ class CandlePattern:
                             np.where(bearish_cond, -1, 0)).shift(offset)
 
         return self.ohlc_df
+
+
+
+# Prueba de los indicadores, solo se ejecuta cuando el archivo se corre directamente
+if __name__ == '__main__':
+
+    import matplotlib.pyplot as plt
+
+    ohlcv = pd.read_csv('OHLCdata.csv')
+    indicator = Indicators(ohlcv)
+
+    
+    #ohlcv = DataHandling(temp).heiken_ashi()
+    #data = indicator.ma(n=13,mode='f',datatype='Close',dataname=None)
+    data = indicator.donchian(n=20,dataname='donchian5fast')
+    data = indicator.donchian(n=100,dataname='donchian5slow')
+    data = indicator.donchian(n=60,dataname='donchian15fast')
+    data = indicator.donchian(n=180,dataname='donchian15slow')
+
+    graf = True
+    if graf:
+        ## GRAFICACION
+        
+        fig,(ax1,ax2) = plt.subplots(2, 1, figsize=(9, 6),sharex=True)
+        # Preparamos los datos para graficar velas
+        indice = ohlcv.index
+        ohlcv = ohlcv.reset_index(drop=True).reset_index()
+        ohlcv['Up'] = ohlcv['Close'] > ohlcv['Open']
+        ohlcv['Bottom'] = np.where(ohlcv['Up'], ohlcv['Open'], ohlcv['Close'])
+        ohlcv['Bar'] = ohlcv['High'] - ohlcv['Low']
+        ohlcv['Body'] = abs(ohlcv['Close'] - ohlcv['Open'])
+        ohlcv['Color'] = np.where(ohlcv['Up'], 'g', 'r')
+        ax1.yaxis.tick_right()
+        ax1.bar(indice, bottom=ohlcv['Low'], height=ohlcv['Bar'], width=0.25, color='#000000')
+        ax1.bar(indice, bottom=ohlcv['Bottom'], height=ohlcv['Body'], width=0.5, color=ohlcv['Color'])
+
+        s = len(indice)
+        # Donchian 1
+        ind1 = data['donchian5fast_max'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian5fast_max'].to_list()
+        ax1.plot(indice,ind1,color='blue',linewidth=0.25)
+        ind1 = data['donchian5fast_min'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian5fast_min'].to_list()
+        ax1.plot(indice,ind1,color='blue',linewidth=0.25)
+        # Donchian 2
+        ind1 = data['donchian5slow_max'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian5slow_max'].to_list()
+        ax1.plot(indice,ind1,color='green',linewidth=0.25)
+        ind1 = data['donchian5slow_min'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian5slow_min'].to_list()
+        ax1.plot(indice,ind1,color='green',linewidth=0.25)
+        # Donchian 3
+        ind1 = data['donchian15fast_max'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian15fast_max'].to_list()
+        ax1.plot(indice,ind1,color='red',linewidth=0.25)
+        ind1 = data['donchian15fast_min'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian15fast_min'].to_list()
+        ax1.plot(indice,ind1,color='red',linewidth=0.25)
+        # Donchian 4
+        ind1 = data['donchian15slow_max'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian15slow_max'].to_list()
+        ax1.plot(indice,ind1,color='orange',linewidth=0.25)
+        ind1 = data['donchian15slow_min'].to_list()
+        if len(ind1) < s:
+            ind1 = [np.nan]*(s-len(ind1))+data['donchian15slow_min'].to_list()
+        ax1.plot(indice,ind1,color='orange',linewidth=0.25)
+    
+        plt.show()
