@@ -1483,6 +1483,10 @@ class PrimaryIndicatorSignals:
         return self.df
 
 
+class SecondaryIndicatorSignals:
+
+    def __init__(self):
+        pass
 
 
 
