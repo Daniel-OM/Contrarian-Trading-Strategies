@@ -107,7 +107,7 @@ class Indicators:
         if ohlc != None and isinstance(ohlc, pd.DataFrame):
             self.ohlc_df = ohlc
 
-    def labelCheck(self, label:str) -> None:
+    def _labelCheck(self, label:str) -> None:
         
         if label not in self.df.columns:
             raise ValueError('The column name is not in the DataFrame. These ' + \
@@ -1318,6 +1318,45 @@ class Indicators:
             df = df.drop(['k'],axis=1)
             return df
     
+    def momentumOscillator(self, n:int=5, datatype:str='Close', 
+                            dataname:str='MO', new_df:pd.DataFrame=None
+                            ) -> pd.DataFrame:
+
+        '''
+        Calculates the Momentum Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the maximum and minimum rolling window.
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting columns in the DataFrame with the data.
+            Default is MO.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the MO.
+        '''
+
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df[dataname] = (df[datatype] / df[datatype].shift(n))*100
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            return df
+    
     def awesomeOscillator(self, n:int=5, m:int=34, method:str='s', 
                           dataname:str='AO', new_df:pd.DataFrame=None
                          ) -> pd.DataFrame:
@@ -1661,6 +1700,67 @@ class Indicators:
             df = df.drop(['KATR'],axis=1)
             return df
 
+    def simpleFisher(self, n:int=10, m:int=3, p:int=3, method:str='s', 
+                     dataname='simpleFisher', new_df:pd.DataFrame=None
+                     ) -> pd.DataFrame:
+
+        '''
+        Calculates the Simple Fisher Transform indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the dochian channel.
+        m: int
+            Length of the slow moving average.
+        p: int
+            Length of the fast moving average.
+        method: str
+            Calculation method used for the moving averages. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is FT.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the FT.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df = self.stochasticOscillator(n=n, m=m, p=p, method=method, dataname='SFSO', 
+                                       new_df=df)
+
+        df['SO'+dataname] = df['SFSOK']/100
+        df['SO'+dataname] = 2*df['SO'+dataname] - 1
+
+        df['SO'+dataname] = np.where(df['SO'+dataname] == 1, 0.999, 
+                            np.where(df['SO'+dataname] == -1, -0.999, 
+                                     df['SO'+dataname]))
+        
+        df[dataname] = 0.5 * np.log((1 + df['SO'+dataname])/(1 - df['SO'+dataname]))
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['SFSOK','SFSOD','SO'+dataname],
+                          axis=1)
+            return df
+        
     def fisher(self,n:int=10,alpha:float=0.33,dataname='Fisher', 
                 new_df:pd.DataFrame=None) -> pd.DataFrame:
 
@@ -1879,6 +1979,52 @@ class Indicators:
         
         else:
             df = df.drop(['TempMA', 'Dev', 'Count'], axis=1)
+            return df
+
+    def chandeMomentumOscillator(self, n:int=14, datatype:str='Close', 
+                                 dataname:str='CMO', new_df:pd.DataFrame=None
+                                ) -> pd.DataFrame:
+
+        '''
+        Calculates the Chande Momentum Oscillator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the indicator.
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting column containing the indicator values.
+            Default is CMO.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+            
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the CMO.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df['Higher'] = np.where(df[datatype] > df[datatype].shift(1), 
+                                df[datatype] - df[datatype].shift(1), 0)
+        df['Lower'] = np.where(df[datatype] < df[datatype].shift(1), 
+                                df[datatype].shift(1) - df[datatype], 0)
+        df['Higher'] = df['Higher'].rolling(n).sum()
+        df['Lower'] = df['Lower'].rolling(n).sum()
+        df[dataname] = (df['Higher'] - df['Lower']) / (df['Higher'] + df['Lower'])
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['Higher', 'Lower'],axis=1)
             return df
 
     def mbfxTiming(self, n:int=7, fil:int=0, dataname:str='MBFX', 
@@ -2323,6 +2469,152 @@ class Indicators:
                     np.where(df['DRicco'] < 0, df['Close'] - df['Close'].shift(-4), 0))
 
         return df
+
+    def demarker(self, n:int=14, method:str='s', dataname:str='DeMark', 
+                 new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the DeMarker Oscillator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the indicator.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        dataname: str
+            Name of the resulting column containing the indicator values.
+            Default is DeMark.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+            
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DeMark.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df['DeMAX'] = np.where(df['High'] > df['High'].shift(1), 
+                               df['High'] - df['High'].shift(1), 0)
+        df['DeMIN'] = np.where(df['Low'] < df['Low'].shift(1), 
+                               df['High'].shift(1) - df['High'], 0)
+        
+        df = self.movingAverage(n=n, method=method, datatype='DeMAX', 
+                                dataname='DMaxMAtemp', new_df=df)
+        df = self.movingAverage(n=n, method=method, datatype='DeMIN', 
+                                dataname='DMinMAtemp', new_df=df)
+        
+        df[dataname] = df['DMaxMAtemp'] / (df['DMaxMAtemp'] + df['DMinMAtemp'])
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['DeMAX', 'DeMIN', 'DMaxMAtemp', 'DMinMAtemp'],axis=1)
+            return df
+
+    def detrendedOscillator(self, n:int=10, method:str='s', datatype:str='Close',
+                            dataname:str='DeTrend', new_df:pd.DataFrame=None
+                            ) -> pd.DataFrame:
+
+        '''
+        Calculates the Detrended Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the moving average.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DeTrend.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DeTrend.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        
+        df = self.movingAverage(n=n, method=method, datatype=datatype, 
+                                dataname='DeTrendMA', new_df=df)
+        
+        df[dataname] = df[datatype].shift(int(n/2+1)) - df['DeTrendMA']
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['DeTrendMA'],axis=1)
+            return df
+
+    def directionalProbOscillator(self, n:int=10, dataname:str='DProb', 
+                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Directional Probability Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the moving average.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DProb.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DProb.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+            
+        df[dataname] = np.where(df['Close'] > df['Open'], 1, 0)
+        df[dataname] = df[dataname].rolling(n).sum()
+        df[dataname] = df[dataname]/n 
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            return df
+
 
 
 

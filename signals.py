@@ -3,7 +3,743 @@ import numpy as np
 import pandas as pd
 
 from indicators import Indicators
-from config import strategies
+
+    
+# def checkStrategyConfig(self, strat_name):
+
+#     from config import strategies
+
+#     if strat_name not in list(strategies.keys()):
+#         raise ValueError(f'Strategy "{strat_name}" not between the tradeable ' + \
+#                             'list: '+','.join(list(strategies.keys())))
+
+class OscillatorSignals:
+
+    def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
+
+        self._newDf(df)
+        self.indicators = Indicators(df)
+        self.shift = 1 if backtest else 0
+
+    def _newDf(self, df:pd.DataFrame, errors:bool=True):
+
+        try:
+            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+            if 'Spread' not in df:
+                if errors:
+                    raise ValueError('"Spread" is not between the dataframe columns.')
+                else:
+                    self.df['Spread'] = [0]*len(self.df)
+                    print('"Spread" is not between the dataframe columns.')
+            if 'SLdist' not in df:
+                if errors:
+                    raise ValueError('"SLdist" is not between the dataframe columns.')
+                else:
+                    self.df['SLdist'] = [0]*len(self.df)
+                    print('"SLdist" is not between the dataframe columns.')
+
+        except:
+            print(df)
+            raise(ValueError('Error trying to store the new DataFrame.'))
+        
+    def getIndicators(self):
+
+        return [i for i in dir(self.indicators) if '_' not in i]
+
+    def _checkIndicator(self, ind:str):
+
+        if ind not in self.getIndicators():
+            raise ValueError('Enter a valid indicator. You can check them calling \
+                             the getIndicators() function.') 
+    
+    def _kwargsError(self, kwargs:dict, ind_name:str):
+
+        if len(kwargs) <= 0:
+            raise ValueError(f'No arguments for the indicator where given, check \
+                            OscillatorSignals.indicators.{ind_name}() to get the \
+                            needed arguments. At least the dataname should be given')
+    
+    def aggresive(self,df:pd.DataFrame=None, lower:float=30.0,
+                upper:float=70.0, ind_name:str='rsi', exit_signal:bool=False, 
+                **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses downwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+        kwargs
+            key - value pairs corresponding to the indicator arguments.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Agr'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+        
+        ind = kwargs['dataname']
+        short_condition = (df[ind] > upper) & (df[ind].shift(1) < upper)
+        long_condition = (df[ind] < lower) & (df[ind].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def conservative(self,df:pd.DataFrame=None, lower:float=30.0,
+                     upper:float=70.0, ind_name:str='rsi', 
+                     exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses upwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Cons'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+        short_condition = (df[ind] < upper) & (df[ind].shift(1) > upper)
+        long_condition = (df[ind] > lower) & (df[ind].shift(1) < lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def cross(self,df:pd.DataFrame=None, n:int=9, lower:float=40.0,
+                upper:float=60.0, ind_name:str='rsi', 
+                exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the price crosses the Moving Average while the indicator is 
+        under the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Moving Average period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Cross'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+        df = self.indicators.movingAverage(n=n, method='s', 
+                                datatype='Close', dataname='MA')
+
+        ind = kwargs['dataname']
+        short_condition = (df[ind] > upper) & \
+                        (df['Close'].shift(1) > df['MA'].shift(1)) & \
+                        (df['Close'] < df['MA'])
+        long_condition = (df[ind] < lower) & \
+                        (df['Close'].shift(1) < df['MA'].shift(1)) & \
+                        (df['Close'] > df['MA'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def divergence(self,df:pd.DataFrame=None, 
+                      lower:float=40.0, upper:float=60.0, width:int=60,
+                      ind_name:str='rsi', exit_signal:bool=False,
+                      **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator makes a higher low below the lower level having 
+        crossed it upwards after the previous low.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        width: int
+            Divergence width.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Div'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+        max_i = len(df)
+        long_condition = []
+        short_condition = []
+        for i,idx  in enumerate(df.index):
+            candle = df.iloc[i]
+            done = False
+
+            # Long
+            if candle[ind] < lower:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    high = df.iloc[j]
+                    if lower < high[ind] and high[ind] < upper:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            higher_low = df.iloc[k]
+                            if higher_low[ind] < lower and \
+                                higher_low['Close'] < candle['Close'] and \
+                                higher_low[ind] > candle[ind]:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if lower < df.iloc[l][ind]:
+                                        long_condition.append(True)
+                                        short_condition.append(False)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+
+            # Short
+            elif candle[ind] > upper:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    low = df.iloc[j]
+                    if lower < low[ind] and low[ind] < upper:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            lower_high = df.iloc[k]
+                            if lower_high[ind] > upper and \
+                                lower_high['Close'] > candle['Close'] and \
+                                lower_high[ind] < candle[ind]:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if upper > df.iloc[l][ind]:
+                                        long_condition.append(False)
+                                        short_condition.append(True)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+            
+            if not done:
+                long_condition.append(False)
+                short_condition.append(False)
+
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def extremeDuration(self,df:pd.DataFrame=None,
+                           lower:float=40.0, upper:float=60.0, 
+                           ind_name:str='rsi', exit_signal:bool=False,
+                           **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses upwards the lower level after beeing 
+        for 5 periods below it.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'ExtDur'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        short_condition = (df[ind] < upper) & \
+                        (df[ind].shift(1) > upper) & \
+                        (df[ind].shift(2) > upper) & \
+                        (df[ind].shift(3) > upper) & \
+                        (df[ind].shift(4) > upper) & \
+                        (df[ind].shift(5) > upper)
+        long_condition = (df[ind] > lower) & \
+                        (df[ind].shift(1) < lower) & \
+                        (df[ind].shift(2) < lower) & \
+                        (df[ind].shift(3) < lower) & \
+                        (df[ind].shift(4) < lower) & \
+                        (df[ind].shift(5) < lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def extreme(self,df:pd.DataFrame=None, lower:float=30.0, 
+                   upper:float=70.0, ind_name:str='rsi',
+                   exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses the lower level just after crossing 
+        the upper level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Ext'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        short_condition = (df[ind] > upper) & \
+                        (df[ind].shift(1) < upper)
+        long_condition = (df[ind] < lower) & \
+                        (df[ind].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def mPattern(self,df:pd.DataFrame=None, lower:float=30.0, 
+                   upper:float=70.0, ind_name:str='rsi',
+                   exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator when creates an M pattern surrounding the 
+        lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'M'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        short_condition = (df[ind] < upper) & \
+                        (df[ind].shift(1) > upper) & \
+                        (df[ind].shift(2) < upper) & \
+                        (df[ind].shift(3) > upper) & \
+                        (df[ind].shift(4) < upper) & \
+                        (df[ind].shift(1) > df[ind].shift(3))
+        long_condition = (df[ind] > lower) & \
+                        (df[ind].shift(1) < lower) & \
+                        (df[ind].shift(2) > lower) & \
+                        (df[ind].shift(3) < lower) & \
+                        (df[ind].shift(4) > lower) & \
+                        (df[ind].shift(1) < df[ind].shift(3))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def reversal(self,df:pd.DataFrame=None, lower:float=30.0, 
+                   upper:float=70.0, tolerance:float=3, ind_name:str='rsi',
+                   exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses the lower level for just one period.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        tolerance: float
+            Limits tolerance.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Rev'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        short_condition = (df[ind] <= upper) & \
+                        (df[ind].shift(1) >= upper-tolerance) & \
+                        (df[ind].shift(2) <= df[ind])
+        long_condition = (df[ind] >= lower) & \
+                        (df[ind].shift(1) <= lower+tolerance) & \
+                        (df[ind].shift(2) >= df[ind])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def pullback(self,df:pd.DataFrame=None, 
+                    lower:float=30.0, upper:float=70.0, tolerance:float=3,
+                    ind_name:str='rsi', exit_signal:bool=False, **kwargs
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator crosses by second time the lower limit.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        tolerance: float
+            Limits tolerance.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'Pull'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        max_i = len(df)
+        long_condition = []
+        short_condition = []
+        for i,idx  in enumerate(df.index):
+            prev_candle = df.iloc[i-1]
+            candle = df.iloc[i]
+            done = False
+
+            # Long
+            if prev_candle[ind] < lower and lower < candle[ind]:
+                for j in range(i+1, len(df)):
+                    prev_last = df.iloc[j-1]
+                    last = df.iloc[j]
+                    if lower <= last[ind] and last[ind] < lower+tolerance and \
+                        prev_last[ind] > last[ind]:
+                        long_condition.append(True)
+                        short_condition.append(False)
+                        done = True
+                        break
+                    if done:
+                        break
+
+            # Short
+            elif prev_candle[ind] > upper and upper > candle[ind]:
+                for j in range(i+1, len(df)):
+                    prev_last = df.iloc[j-1]
+                    last = df.iloc[j]
+                    if upper >= last[ind] and last[ind] > upper+tolerance and \
+                        prev_last[ind] < last[ind]:
+                        long_condition.append(False)
+                        short_condition.append(True)
+                        done = True
+                        break
+                    if done:
+                        break
+            
+            if not done:
+                long_condition.append(False)
+                short_condition.append(False)
+
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def vPattern(self,df:pd.DataFrame=None, lower:float=30.0, 
+            upper:float=70.0, ind_name:str='rsi',
+            exit_signal:bool=False, **kwargs) -> pd.DataFrame: 
+        
+        '''
+        Buy when the indicator when creates a V pattern surrounding the 
+        lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        ind_name: str
+            Name of the indicator that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._kwargsError(kwargs, ind_name)
+        strat_name = ind_name + 'V'
+        self._newDf(df)
+        df = self.df.copy()
+
+        df = getattr(self.indicators, ind_name)(**kwargs)
+
+        ind = kwargs['dataname']
+
+        short_condition = (df[ind] < upper) & \
+                        (df[ind].shift(1) > upper) & \
+                        (df[ind].shift(2) < upper)
+        long_condition = (df[ind] > lower) & \
+                        (df[ind].shift(1) < lower) & \
+                        (df[ind].shift(2) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+
 
 
 class PrimaryIndicatorSignals:
@@ -24,12 +760,6 @@ class PrimaryIndicatorSignals:
     
         if 'SLdist' not in self.df.columns:
             raise ValueError('"SLdist" is not a column from the dataframe.')
-        
-    def _checkStrategyConfig(self, strat_name):
-
-        if strat_name not in list(strategies.keys()):
-            raise ValueError(f'Strategy "{strat_name}" not between the tradeable ' + \
-                             'list: '+','.join(list(strategies.keys())))
 
     def bollingerAggresive(self,df:pd.DataFrame=None, n:int=20, dev:float=2.0,
                         strat_name:str='BBAgr', exit_signal:bool=False
@@ -57,7 +787,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -111,7 +840,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -175,7 +903,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -280,7 +1007,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -334,7 +1060,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -389,7 +1114,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -453,7 +1177,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -560,7 +1283,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -625,7 +1347,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -682,7 +1403,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -748,7 +1468,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -809,7 +1528,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -874,7 +1592,7 @@ class PrimaryIndicatorSignals:
         return self.df
 
     def rsiV(self,df:pd.DataFrame=None, n:int=5, lower:float=30.0, 
-            upper:float=70.0, strat_name:str='RSIRev',
+            upper:float=70.0, strat_name:str='RSIV',
             exit_signal:bool=False) -> pd.DataFrame: 
         
         '''
@@ -902,7 +1620,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -960,7 +1677,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
         
@@ -1013,7 +1729,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
         
@@ -1066,7 +1781,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
         
@@ -1127,7 +1841,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -1233,7 +1946,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -1297,7 +2009,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -1353,7 +2064,6 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
         self._newDf(df)
         df = self.df.copy()
             
@@ -1419,7 +2129,7 @@ class PrimaryIndicatorSignals:
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
+    
         self._newDf(df)
         df = self.df.copy()
             
@@ -1483,10 +2193,364 @@ class PrimaryIndicatorSignals:
         return self.df
 
 
+
+
 class SecondaryIndicatorSignals:
 
-    def __init__(self):
-        pass
+    def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
+
+        self.df = df
+        self.indicators = Indicators(df)
+        self.shift = 1 if backtest else 0
+
+    def _newDf(self, df:pd.DataFrame):
+
+        try:
+            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+        except:
+            print(df)
+            raise(ValueError('Error trying to store the new DataFrame.'))
+    
+        if 'SLdist' not in self.df.columns:
+            raise ValueError('"SLdist" is not a column from the dataframe.')
+
+    def chandeMomentum(self,df:pd.DataFrame=None, n:int=14, lower:float=-0.5,
+                       upper:float=0.5, strat_name:str='ChandMOsc', exit_signal:bool=False
+                       ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Chande Momentum Oscillator crosses upwards the lower limit.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Chande Momentum Oscillator period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.chandeMomentumOscillator(n=n, dataname='CMO', 
+                                                      new_df=df)
+
+        short_condition = (df['CMO'] < upper) & \
+                        (df['CMO'].shift(1) > upper)
+        long_condition = (df['CMO'] > lower) & \
+                        (df['CMO'].shift(1) < lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def deMarker(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
+                       upper:float=0.8, strat_name:str='DMark', exit_signal:bool=False
+                       ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the DeMarker crosses upwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            DeMarker period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.demarker(n=n, dataname='DeMark', new_df=df)
+
+        short_condition = (df['DeMark'] > upper) & \
+                        (df['DeMark'].shift(1) < upper)
+        long_condition = (df['DeMark'] < lower) & \
+                        (df['DeMark'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def detrended(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
+                    upper:float=0.8, strat_name:str='DTrend', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the DeTrended Oscillator crosses upwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            DeTrended Oscillator period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.detrendedOscillator(n=n, method='s', datatype='Close', 
+                                                 dataname='DeTrend', new_df=df)
+
+        short_condition = (df['DeTrend'] > upper) & \
+                        (df['DeTrend'].shift(1) < upper)
+        long_condition = (df['DeTrend'] < lower) & \
+                        (df['DeTrend'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def dirProbIndex(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
+                    upper:float=0.8, strat_name:str='DProb', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Directional Probability Index Oscillator crosses upwards the 
+        lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Directional Probability Index Oscillator period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.directionalProbOscillator(n=n, dataname='DProbOsc', 
+                                                       new_df=df)
+
+        short_condition = (df['DProbOsc'] > upper) & \
+                        (df['DProbOsc'].shift(1) < upper)
+        long_condition = (df['DProbOsc'] < lower) & \
+                        (df['DProbOsc'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def modFisher(self,df:pd.DataFrame=None, n:int=10, lower:float=-2.0,
+                    upper:float=2.0, strat_name:str='SFish', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Simple Fisher Transform crosses upwards the 
+        lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Simple Fisher Transform period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.simpleFisher(n=n, dataname='simpleFisher', 
+                                                       new_df=df)
+
+        short_condition = (df['simpleFisher'] > upper) & \
+                        (df['simpleFisher'].shift(1) < upper)
+        long_condition = (df['simpleFisher'] < lower) & \
+                        (df['simpleFisher'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+        
+    def momentum(self,df:pd.DataFrame=None, n:int=10, lower:float=1.0,
+                upper:float=1.0, strat_name:str='MOsc', exit_signal:bool=False
+                ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Momentum Oscillator crosses upwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Simple Fisher Transform period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.simpleFisher(n=n, dataname='simpleFisher', 
+                                                       new_df=df)
+
+        short_condition = (df['simpleFisher'] < upper) & \
+                        (df['simpleFisher'].shift(1) > upper)
+        long_condition = (df['simpleFisher'] > lower) & \
+                        (df['simpleFisher'].shift(1) < lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
 
 
 
@@ -1509,14 +2573,8 @@ class Signals(PrimaryIndicatorSignals):
     
         if 'SLdist' not in self.df.columns:
             raise ValueError('"SLdist" is not a column from the dataframe.')
-        
-    def _checkStrategyConfig(self, strat_name):
-
-        if strat_name not in list(strategies.keys()):
-            raise ValueError(f'Strategy "{strat_name}" not between the tradeable ' + \
-                             'list: '+','.join(list(strategies.keys())))
     
-    def turtlesBreakout(self,df:pd.DataFrame=None, 
+    def turtlesBreakout(self, df:pd.DataFrame=None, 
                       n:int=100, strat_name:str='TBO') -> pd.DataFrame: 
         
         '''
@@ -1541,7 +2599,7 @@ class Signals(PrimaryIndicatorSignals):
             DataFrame containing all the data.
         '''
 
-        self._checkStrategyConfig(strat_name)
+        
         self._newDf(df)
         df = self.df.copy()
             
@@ -1586,7 +2644,7 @@ class Signals(PrimaryIndicatorSignals):
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
+        
         self._newDf(df)
         df = self.df.copy()
 
@@ -1649,7 +2707,7 @@ class Signals(PrimaryIndicatorSignals):
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
+        
         self._newDf(df)
         df = self.df.copy()
             
@@ -1712,7 +2770,7 @@ class Signals(PrimaryIndicatorSignals):
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
+        
         self._newDf(df)
         df = self.df.copy()
         
@@ -1768,7 +2826,7 @@ class Signals(PrimaryIndicatorSignals):
             DataFrame containing all the data.
         '''
         
-        self._checkStrategyConfig(strat_name)
+        
         self._newDf(df)
         df = self.df.copy()
             
@@ -1801,13 +2859,18 @@ class Signals(PrimaryIndicatorSignals):
 if __name__ == '__main__':
 
     import os
-    from oanda import Oanda
 
-    oanda = Oanda(mode=False, 
-                token=open(os.path.join('KEYS','OANDA_DEMO_API.txt'),'r+').read())
+        
+    if False:
+        from degiro import DeGiro
+        degiro = DeGiro('OneMade','Onemade3680')
+        products = degiro.getProducts(exchange_id=663,country=846) # Nasdaq exchange
+        asset = products.iloc[213] # AAPL -> vwdid = 350015372
+        raw = degiro.getPriceData(asset['vwdId'], 'PT1H', 'P5Y', tz='UTC')
+    else:
+        import yfinance as yf
+        raw = yf.Ticker('SPY').history(period='max',interval='1h')
 
-    raw = oanda.getCandles('BTC_USD','H1')
-    raw = raw[raw['Complete']]
     raw['SLdist'] = Indicators(raw).atr(n=20, method='s', dataname='ATR')['ATR']
 
     signals = Signals(raw, backtest=False)
