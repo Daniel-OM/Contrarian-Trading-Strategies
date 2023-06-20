@@ -2615,6 +2615,131 @@ class Indicators:
         else:
             return df
 
+    def sar(self, af:float=0.02, amax:float=0.2, dataname:str='PSAR', 
+            new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the SAR indicator.
+
+        Parameters
+        ----------
+        af: float
+            Acceleration factor.
+        amax float
+            Maximum acceleration factor.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DProb.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the PSAR.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        # Starting values
+        high = df['High']
+        low = df['Low']
+        sig0, xpt0, af0 = True, high[0], af
+        sar = [low[0] - (high - low).std()]
+        for i in range(1, len(df)):
+            sig1, xpt1, af1 = sig0, xpt0, af0
+            lmin = min(low[i - 1], low[i])
+            lmax = max(high[i - 1], high[i])
+            if sig1:
+                sig0 = low[i] > sar[-1]
+                xpt0 = max(lmax, xpt1)
+            else:
+                sig0 = high[i] >= sar[-1]
+                xpt0 = min(lmin, xpt1)
+            if sig0 == sig1:
+                sari = sar[-1] + (xpt1 - sar[-1])*af1
+                af0 = min(amax, af1 + af)
+                if sig0:
+                    af0 = af0 if xpt0 > xpt1 else af1
+                    sari = min(sari, lmin)
+                else:
+                    af0 = af0 if xpt0 < xpt1 else af1
+                    sari = max(sari, lmax)
+            else:
+                af0 = af
+                sari = xpt0
+            sar.append(sari)      
+
+        df[dataname] = sar  
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = sar
+            return self.ohlc_df
+        
+        else:
+            return df
+
+    def relativeVigorOscillator(self, n:int=10, method:str='s', dataname:str='RVI', 
+                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Relative Vigor Index Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the indicator.
+        method: str
+            Calculation method used for the moving averages. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting columns in the DataFrame with the data.
+            Default is RVI.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the RVI and the RVISig.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df[dataname+'Num'] = (df['Close']-df['Open']) + (2*(df['Close'] - df['Open'].shift(1))) \
+                            + (2*(df['Close'] - df['Open'].shift(2))) + (df['Close'] - df['Open'].shift(3))
+        df = self.movingAverage(n=n, method='s', datatype=dataname+'Num', 
+                                dataname=dataname+'Num', new_df=df)
+        df[dataname+'Den'] = (df['High']-df['Low']) + (2*(df['High'] - df['Low'].shift(1))) \
+                            + (2*(df['High'] - df['Low'].shift(2))) + (df['High'] - df['Low'].shift(3))
+        df = self.movingAverage(n=n, method='s', datatype=dataname+'Den', 
+                                dataname=dataname+'Den', new_df=df)
+
+        df[dataname] = df[dataname+'Num'] / df[dataname+'Den']
+        df[dataname+'Sig'] = ((df[dataname]) + (2*(df[dataname].shift(1))) \
+                            + (2*(df[dataname].shift(2))) + (df[dataname].shift(3))) / 6
+
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            self.ohlc_df[dataname+'Sig'] = df[dataname+'Sig']
+            return self.ohlc_df
+        
+        else:
+            df.drop(columns=[dataname+'Num', dataname+'Den'], inplace=True)
+            return df
 
 
 

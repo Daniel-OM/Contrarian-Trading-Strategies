@@ -2495,7 +2495,7 @@ class SecondaryIndicatorSignals:
 
         return self.df
         
-    def momentum(self,df:pd.DataFrame=None, n:int=10, lower:float=1.0,
+    def momentum(self,df:pd.DataFrame=None, n:int=14, lower:float=1.0,
                 upper:float=1.0, strat_name:str='MOsc', exit_signal:bool=False
                 ) -> pd.DataFrame: 
         
@@ -2507,7 +2507,7 @@ class SecondaryIndicatorSignals:
         df: pd.DataFrame
             DataFrame with the price data.
         n: int
-            Simple Fisher Transform period.
+            Momentum Oscillator period.
         lower: float
             Lower limit.
         upper: float
@@ -2527,13 +2527,125 @@ class SecondaryIndicatorSignals:
         df = self.df.copy()
             
 
-        df = self.indicators.simpleFisher(n=n, dataname='simpleFisher', 
-                                                       new_df=df)
+        df = self.indicators.momentumOscillator(n=n, dataname='MO', 
+                                                new_df=df)  
 
-        short_condition = (df['simpleFisher'] < upper) & \
-                        (df['simpleFisher'].shift(1) > upper)
-        long_condition = (df['simpleFisher'] > lower) & \
-                        (df['simpleFisher'].shift(1) < lower)
+        short_condition = (df['MO'] < upper) & \
+                        (df['MO'].shift(1) > upper)
+        long_condition = (df['MO'] > lower) & \
+                        (df['MO'].shift(1) < lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def paraRSI(self,df:pd.DataFrame=None, n:int=14, lower:float=20,
+                upper:float=80, strat_name:str='PRSI', exit_signal:bool=False
+                ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Parabolic RSI crosses upwards the lower level.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Parabolic RSI period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.sar(af=0.02, amax=0.2, dataname='PSAR', new_df=df)  
+        df = self.indicators.rsi(n=n, datatype='PSAR', dataname='RSI', new_df=df)  
+
+        short_condition = (df['RSI'] > upper) & \
+                        (df['RSI'].shift(1) < upper)
+        long_condition = (df['RSI'] < lower) & \
+                        (df['RSI'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def relVigor(self,df:pd.DataFrame=None, n:int=14, lower:float=20,
+                upper:float=80, strat_name:str='RelVigor', exit_signal:bool=False
+                ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Relative Vigor Index crosses upwards the Signal.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Parabolic RSI period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.sar(af=0.02, amax=0.2, dataname='PSAR', new_df=df)  
+        df = self.indicators.relativeVigorOscillator(n=n, datatype='RVI', dataname='RSI', new_df=df)  
+
+        short_condition = (df['RSI'] > upper) & \
+                        (df['RSI'].shift(1) < upper)
+        long_condition = (df['RSI'] < lower) & \
+                        (df['RSI'].shift(1) > lower)
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
