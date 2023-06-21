@@ -590,6 +590,9 @@ def k_fibonacci_timing_pattern(data,
                                 position_long, 
                                 position_short):
         
+    count      = 8
+    step       = 5
+    step_two   = 3
     data = add_column(data, 2)
     
     counter = -1 

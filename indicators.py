@@ -1117,7 +1117,7 @@ class Indicators:
             return df
 
     def rsi(self, n:int=14, method:str='e', 
-             datatype='Close', dataname:str='RSI', 
+             datatype:str='Close', dataname:str='RSI', 
              new_df:pd.DataFrame=None) -> pd.DataFrame:
 
         '''
@@ -1175,6 +1175,63 @@ class Indicators:
         else:
             df = df.drop(['delta','gain','loss','avg_gain','avg_loss','RS'],
                          axis=1)
+            return df
+
+    def rsiAtr(self, n:int=14, m:int=14, o:int=14, method:str='e', 
+             datatype='Close', dataname:str='RSIATR', 
+             new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the RSI of the RSI/ATR.
+
+        Parameters
+        ----------
+        n: int
+            Length of the ATR.
+        m: int
+            Length of the first RSI.
+        o: int
+            Length of the second RSI.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting columns in the DataFrame with the data.
+            Default is RSI.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the RSI.
+        '''
+
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df = self.atr(n=n, method=method, dataname=dataname+'ATR', ned_df=df)
+        df = self.rsi(n=m, method=method, datatype=datatype, dataname=dataname+'RSI', 
+                      new_df=df)
+        df[dataname] = df[dataname+'RSI'] / df[dataname+'ATR']
+
+        df = self.rsi(n=o, method=method, datatype=dataname, dataname=dataname, new_df=df)
+
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop([dataname+'RSI',dataname+'ATR'], axis=1)
             return df
 
     def adx(self, n:int=20, method:str='e', dataname:str='ADX', 
@@ -1262,7 +1319,7 @@ class Indicators:
             return df
 
     def stochasticOscillator(self, n:int=5, m:int=3, p:int=3, method:str='s', 
-                             dataname:str='SO', new_df:pd.DataFrame=None
+                             dataname:str='SO', datatype:str=None, new_df:pd.DataFrame=None
                              ) -> pd.DataFrame:
 
         '''
@@ -1284,6 +1341,8 @@ class Indicators:
             - Volume Weighted: v
             - VWAP: vwap
             - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
         dataname: str
             Name of the resulting columns in the DataFrame with the data.
             Default is SO. A sufix will be added as there are two lines: 
@@ -1302,8 +1361,13 @@ class Indicators:
         else:
             df = new_df.copy()
 
-        df['k'] = ((df['Close'] - df['Low'].rolling(n).min()) / \
+        if datatype == None:
+            df['k'] = ((df['Close'] - df['Low'].rolling(n).min()) / \
                         (df['High'].rolling(n).max()-df['Low'].rolling(n).min()))*100
+        else:
+            df['k'] = ((df[datatype] - df[datatype].rolling(n).min()) / \
+                        (df[datatype].rolling(n).max()-df[datatype].rolling(n).min()))*100
+            
         df = self.movingAverage(n=m, method=method, datatype='k', 
                                 dataname=dataname+'K', new_df=df)
         df = self.movingAverage(n=p, method=method, datatype='k', 
@@ -2721,11 +2785,11 @@ class Indicators:
 
         df[dataname+'Num'] = (df['Close']-df['Open']) + (2*(df['Close'] - df['Open'].shift(1))) \
                             + (2*(df['Close'] - df['Open'].shift(2))) + (df['Close'] - df['Open'].shift(3))
-        df = self.movingAverage(n=n, method='s', datatype=dataname+'Num', 
+        df = self.movingAverage(n=n, method=method, datatype=dataname+'Num', 
                                 dataname=dataname+'Num', new_df=df)
         df[dataname+'Den'] = (df['High']-df['Low']) + (2*(df['High'] - df['Low'].shift(1))) \
                             + (2*(df['High'] - df['Low'].shift(2))) + (df['High'] - df['Low'].shift(3))
-        df = self.movingAverage(n=n, method='s', datatype=dataname+'Den', 
+        df = self.movingAverage(n=n, method=method, datatype=dataname+'Den', 
                                 dataname=dataname+'Den', new_df=df)
 
         df[dataname] = df[dataname+'Num'] / df[dataname+'Den']

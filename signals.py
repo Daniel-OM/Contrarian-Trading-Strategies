@@ -21,7 +21,7 @@ class OscillatorSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame, errors:bool=True):
+    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
         try:
             self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
@@ -750,16 +750,26 @@ class PrimaryIndicatorSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame):
+    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
         try:
             self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+            if 'Spread' not in df:
+                if errors:
+                    raise ValueError('"Spread" is not between the dataframe columns.')
+                else:
+                    self.df['Spread'] = [0]*len(self.df)
+                    print('"Spread" is not between the dataframe columns.')
+            if 'SLdist' not in df:
+                if errors:
+                    raise ValueError('"SLdist" is not between the dataframe columns.')
+                else:
+                    self.df['SLdist'] = [0]*len(self.df)
+                    print('"SLdist" is not between the dataframe columns.')
+
         except:
             print(df)
             raise(ValueError('Error trying to store the new DataFrame.'))
-    
-        if 'SLdist' not in self.df.columns:
-            raise ValueError('"SLdist" is not a column from the dataframe.')
 
     def bollingerAggresive(self,df:pd.DataFrame=None, n:int=20, dev:float=2.0,
                         strat_name:str='BBAgr', exit_signal:bool=False
@@ -2203,16 +2213,26 @@ class SecondaryIndicatorSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame):
+    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
         try:
             self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+            if 'Spread' not in df:
+                if errors:
+                    raise ValueError('"Spread" is not between the dataframe columns.')
+                else:
+                    self.df['Spread'] = [0]*len(self.df)
+                    print('"Spread" is not between the dataframe columns.')
+            if 'SLdist' not in df:
+                if errors:
+                    raise ValueError('"SLdist" is not between the dataframe columns.')
+                else:
+                    self.df['SLdist'] = [0]*len(self.df)
+                    print('"SLdist" is not between the dataframe columns.')
+
         except:
             print(df)
             raise(ValueError('Error trying to store the new DataFrame.'))
-    
-        if 'SLdist' not in self.df.columns:
-            raise ValueError('"SLdist" is not a column from the dataframe.')
 
     def chandeMomentum(self,df:pd.DataFrame=None, n:int=14, lower:float=-0.5,
                        upper:float=0.5, strat_name:str='ChandMOsc', exit_signal:bool=False
@@ -2639,13 +2659,508 @@ class SecondaryIndicatorSignals:
         df = self.df.copy()
             
 
-        df = self.indicators.sar(af=0.02, amax=0.2, dataname='PSAR', new_df=df)  
-        df = self.indicators.relativeVigorOscillator(n=n, datatype='RVI', dataname='RSI', new_df=df)  
+        df = self.indicators.relativeVigorOscillator(n=n, datatype='RVI', dataname='Close', new_df=df)  
 
-        short_condition = (df['RSI'] > upper) & \
-                        (df['RSI'].shift(1) < upper)
-        long_condition = (df['RSI'] < lower) & \
-                        (df['RSI'].shift(1) > lower)
+        short_condition = (df['RVI'] < df['RVISig']) & \
+                        (df['RVI'].shift(1) > df['RVISig'].shift(1)) & \
+                        (df['RVI'] > 0)
+        long_condition = (df['RVI'] > df['RVISig']) & \
+                        (df['RVI'].shift(1) < df['RVISig'].shift(1)) & \
+                        (df['RVI'] < 0)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def rsiAtr(self,df:pd.DataFrame=None, n:int=14, m:int=14, o:int=14, lower:float=30,
+                upper:float=70, strat_name:str='RsiAtr', exit_signal:bool=False
+                ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSIATR crosses upwards the Signal.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            ATR period.
+        m: int
+            First RSI period.
+        o: int
+            Second RSI period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+
+        df = self.indicators.rsiAtr(n=n, m=m, o=o, datatype='Close', dataname='RSIATR', new_df=df)  
+
+        short_condition = (df['RSIATR'] > upper) & \
+                        (df['RSIATR'].shift(1) < upper)
+        long_condition = (df['RSIATR'] < lower) & \
+                        (df['RSIATR'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def stochRsi(self,df:pd.DataFrame=None, n:int=14, m:int=3, p:int=3, lower:float=5,
+                upper:float=95, strat_name:str='StochRsi', exit_signal:bool=False
+                ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Stochstic RSI crosses upwards the Signal.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Stochstic and RSI period.
+        m: int
+            Length of the slow moving average.
+        p: int
+            Length of the fast moving average.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        df = self.indicators.rsi(n=n, method='s',datatype='Close',dataname='RSI',new_df=df)
+        df = self.indicators.stochasticOscillator(n=n, m=m, p=p, datatype='RSI', dataname='SO', new_df=df)  
+
+        short_condition = (df['SO'] > upper) & \
+                        (df['SO'].shift(1) < upper)
+        long_condition = (df['SO'] < lower) & \
+                        (df['SO'].shift(1) > lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+
+class KSignals:
+
+    def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
+
+        self.df = df
+        self.indicators = Indicators(df)
+        self.shift = 1 if backtest else 0
+
+    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+
+        try:
+            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+            if 'Spread' not in df:
+                if errors:
+                    raise ValueError('"Spread" is not between the dataframe columns.')
+                else:
+                    self.df['Spread'] = [0]*len(self.df)
+                    print('"Spread" is not between the dataframe columns.')
+            if 'SLdist' not in df:
+                if errors:
+                    raise ValueError('"SLdist" is not between the dataframe columns.')
+                else:
+                    self.df['SLdist'] = [0]*len(self.df)
+                    print('"SLdist" is not between the dataframe columns.')
+
+        except:
+            print(df)
+            raise(ValueError('Error trying to store the new DataFrame.'))
+        
+    def envelopes(self,df:pd.DataFrame=None, n:int=14, strat_name:str='EnvStrat', 
+                 exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Low drops between the highs and lows MAs and the Close is 
+        below the higher MA.
+
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            ATR period.
+        m: int
+            Length of the slow moving average.
+        p: int
+            Length of the fast moving average.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        df = self.indicators.movingAverage(n=n, method='s',datatype='High',dataname='UPMA',new_df=df)
+        df = self.indicators.movingAverage(n=n, method='s',datatype='Low',dataname='DNMA',new_df=df)
+
+        short_condition = (df['High'] < df['UPMA']) & (df['High'] > df['DNMA']) & \
+                        (df['High'].shift(1) > df['DNMA'].shift(1)) & \
+                        (df['Close'] > df['DNMA'])
+        long_condition = (df['Low'] < df['UPMA']) & (df['Low'] > df['DNMA']) & \
+                        (df['Low'].shift(1) > df['UPMA'].shift(1)) & \
+                        (df['Close'] < df['UPMA'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+     
+    def fibEnvelopes(self,df:pd.DataFrame=None, n:int=14, strat_name:str='FibEnv', 
+                 exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Low drops between the highs and lows FMAs and the Close is 
+        below the higher FMA.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            ATR period.
+        m: int
+            Length of the slow moving average.
+        p: int
+            Length of the fast moving average.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        df = self.indicators.movingAverage(n=n, method='f',datatype='High',dataname='UPMA',new_df=df)
+        df = self.indicators.movingAverage(n=n, method='f',datatype='Low',dataname='DNMA',new_df=df)
+
+        short_condition = (df['High'] < df['UPMA']) & (df['High'] > df['DNMA']) & \
+                        (df['High'].shift(1) > df['DNMA'].shift(1)) & \
+                        (df['Close'] > df['DNMA'])
+        long_condition = (df['Low'] < df['UPMA']) & (df['Low'] > df['DNMA']) & \
+                        (df['Low'].shift(1) > df['UPMA'].shift(1)) & \
+                        (df['Close'] < df['UPMA'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def fibTiming(self,df:pd.DataFrame=None, count:int=8, n:int=5, m:int=3, 
+                  strat_name:str='FibEnv', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Fibonacci pattern appears.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        count: int
+            Counter for the pattern.
+        n: int
+            Step one for the pattern.
+        m: int
+            Step two for the pattern.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        counter = -1
+        long = []
+        for i,idx in enumerate(min([n,m]),df.index):
+            candle = df.iloc[i]
+            candle_one = df.iloc[i-n]
+            candle_two = df.iloc[i-m]
+            if candle['Close'] < candle_one['Close'] and \
+                candle['Close'] < candle_two['Close']:
+                
+                long.append(counter)
+                counter += -1   
+                
+                if counter == -count - 1:
+                    counter = 0
+                else:
+                    continue  
+                
+            elif candle['Close'] >= candle_one['Close'] or \
+                candle['Close'] >= candle_two['Close']:
+                
+                counter = -1
+                long.append(0) 
+            
+        counter = 1 
+        short = []
+        for i,idx in enumerate(min([n,m]),df.index):
+            candle = df.iloc[i]
+            candle_one = df.iloc[i-n]
+            candle_two = df.iloc[i-m]
+            if candle['Close'] > candle_one['Close'] and \
+                candle['Close'] > candle_two['Close']:
+                
+                short.append(counter) 
+                counter += 1      
+                
+                if counter == count + 1: 
+                    counter = 0     
+                else:
+                    continue        
+                
+            elif candle['Close'] <= candle_one['Close'] or \
+                candle['Close'] <= candle_two['Close']:
+                
+                counter = 1 
+                short.append(0) 
+        
+        df['Long'] = long
+        df['Short'] = short
+
+
+        short_condition = (df['Short'] == count) & (df['Close'] > df['Close'].shift(1))
+        long_condition = (df['Long'] == -count) & (df['Close'] < df['Close'].shift(1))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+
+    def supRes(self,df:pd.DataFrame=None, n:int=5, lower:float=0.05, upper:float=0.05,
+                  strat_name:str='SupRes', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Fibonacci pattern appears.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        count: int
+            Counter for the pattern.
+        n: int
+            Step one for the pattern.
+        m: int
+            Step two for the pattern.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+        
+        df['Range'] = df['High'].rolling(n).max() - df['Low'].rolling(n).min()
+        df['Support'] = df['Low'].rolling(n).min() + df['Close']*lower
+        df['Resistance'] = df['High'].rolling(n).max() - df['Close']*upper
+
+
+        short_condition = (df['Close'] < df['Resistance']) & \
+                        (df['Close'].shift(1) > df['Resistance'].shift(1))
+        long_condition = (df['Close'] > df['Support']) & \
+                        (df['Close'].shift(1) < df['Support'].shift(1))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def reversal(self,df:pd.DataFrame=None, n:int=100, dev:float=2,
+                 strat_name:str='RevStrat', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Fibonacci pattern appears.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        count: int
+            Counter for the pattern.
+        n: int
+            Step one for the pattern.
+        m: int
+            Step two for the pattern.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+        
+        df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, datatype='Close', 
+                                            dataname='BB', new_df=df)
+        df = self.indicators.macd(a=12, b=26, c=9, datatype='Close', dataname='MACD', new_df=df)  
+
+
+        short_condition = ((df['Close'] > df['BBUP']) | (df['Open'] > df['BBUP'])) & \
+                        (df['MACD'] < df['MACDS']) & (df['MACD'].shift(1) > df['MACDS'].shift(1))
+        long_condition = ((df['Close'] < df['BBDN']) | (df['Open'] < df['BBDN'])) & \
+                        (df['MACD'] > df['MACDS']) & (df['MACD'].shift(1) < df['MACDS'].shift(1))
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
@@ -2667,6 +3182,9 @@ class SecondaryIndicatorSignals:
 
 
 
+
+
+
 class Signals(PrimaryIndicatorSignals):
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
@@ -2675,16 +3193,26 @@ class Signals(PrimaryIndicatorSignals):
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame):
+    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
         try:
             self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+            if 'Spread' not in df:
+                if errors:
+                    raise ValueError('"Spread" is not between the dataframe columns.')
+                else:
+                    self.df['Spread'] = [0]*len(self.df)
+                    print('"Spread" is not between the dataframe columns.')
+            if 'SLdist' not in df:
+                if errors:
+                    raise ValueError('"SLdist" is not between the dataframe columns.')
+                else:
+                    self.df['SLdist'] = [0]*len(self.df)
+                    print('"SLdist" is not between the dataframe columns.')
+
         except:
             print(df)
             raise(ValueError('Error trying to store the new DataFrame.'))
-    
-        if 'SLdist' not in self.df.columns:
-            raise ValueError('"SLdist" is not a column from the dataframe.')
     
     def turtlesBreakout(self, df:pd.DataFrame=None, 
                       n:int=100, strat_name:str='TBO') -> pd.DataFrame: 
