@@ -2499,7 +2499,8 @@ class Indicators:
             return df
 
     def doubleRiccochet(self, df:pd.DataFrame=None, window1:int=10, window2:int=20, 
-                        offset:int=1, delay:int=1, inverse:bool=False) -> pd.DataFrame:
+                        offset:int=1, delay:int=1, inverse:bool=False, 
+                        new_df:pd.DataFrame=None) -> pd.DataFrame:
         
         if not isinstance(new_df, pd.DataFrame):
             df = self.ohlc_df.copy()
