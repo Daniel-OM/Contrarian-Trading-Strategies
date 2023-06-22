@@ -3264,6 +3264,235 @@ class KSignals(SignalsTemplate):
 
         return self.df
 
+class Strategies(SignalsTemplate):
+
+    def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
+
+        self.df = df
+        self.indicators = Indicators(df)
+        self.shift = 1 if backtest else 0
+        
+    def macdStrat(self,df:pd.DataFrame=None, a:int=12, b:int=26, c:int=9, 
+                  width:int=60, strat_name:str='EnvStrat', 
+                  exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the Low drops between the highs and lows MAs and the Close is 
+        below the higher MA.
+
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        a: int
+            MACD length of the fast moving average.
+        b: int
+            MACD length of the slow moving average.
+        c: int
+            MACD length of the difference moving average.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        df = self.indicators.macd(a=a, b=b, c=c, method='e', datatype='Close', 
+                                  dataname='MACD', new_df=df)
+
+        max_i = len(df)
+        long_condition = []
+        short_condition = []
+        for i,idx  in enumerate(df.index):
+            candle = df.iloc[i]
+            done = False
+
+            # Long
+            if candle['MACD'] < candle['MACDS'] and candle['MACD'] < 0:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    high = df.iloc[j]
+                    if high['MACD'] > high['MACDS'] and high['MACD'] < 0:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            higher_low = df.iloc[k]
+                            if higher_low['MACD'] < higher_low['MACDS'] and \
+                                higher_low['MACD'] < 0 and \
+                                higher_low['Close'] < candle['Close'] and \
+                                higher_low['MACD'] > candle['MACD']:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if df.iloc[l]['MACDS'] < df.iloc[l]['MACD'] and \
+                                        df.iloc[l]['MACD'] < 0:
+                                        long_condition.append(True)
+                                        short_condition.append(False)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+
+            # Short
+            elif candle['MACD'] > candle['MACDS'] and candle['MACD'] > 0:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    low = df.iloc[j]
+                    if low['MACD'] < low['MACDS'] and low['MACD'] > 0:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            lower_high = df.iloc[k]
+                            if lower_high['MACD'] > lower_high['MACDS'] and \
+                                lower_high['MACD'] > 0 and \
+                                lower_high['Close'] > candle['Close'] and \
+                                lower_high['MACD'] < candle['MACD']:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if df.iloc[l]['MACDS'] > df.iloc[l]['MACD'] and \
+                                        df.iloc[l]['MACD'] > 0:
+                                        long_condition.append(False)
+                                        short_condition.append(True)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+            
+            if not done:
+                long_condition.append(False)
+                short_condition.append(False)
+
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+     
+    def rsiDivergence(self,df:pd.DataFrame=None, n:int=14, m:int=9, 
+                      lower:float=40.0, upper:float=60.0, width:int=60,
+                      strat_name:str='RSIDiv', exit_signal:bool=False
+                      ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI makes a higher low below the lower level having 
+        crossed it upwards after the previous low.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            RSI period.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        width: int
+            Divergence width.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+            
+        df = self.indicators.rsi(n=n, method='s', datatype='Close', 
+                                 dataname='RSI')
+
+        max_i = len(df)
+        long_condition = []
+        short_condition = []
+        for i,idx  in enumerate(df.index):
+            candle = df.iloc[i]
+            done = False
+
+            # Long
+            if candle['RSI'] < lower:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    high = df.iloc[j]
+                    if lower < high['RSI'] and high['RSI'] < upper:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            higher_low = df.iloc[k]
+                            if higher_low['RSI'] < lower and \
+                                higher_low['Close'] < candle['Close'] and \
+                                higher_low['RSI'] > candle['RSI']:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if lower < df.iloc[l]['RSI']:
+                                        long_condition.append(True)
+                                        short_condition.append(False)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+
+            # Short
+            elif candle['RSI'] > upper:
+                for j in range(i+1, i+width if i+width < max_i else max_i):
+                    low = df.iloc[j]
+                    if lower < low['RSI'] and low['RSI'] < upper:
+                        for k in range(j+1, i+width if i+width < max_i else max_i):
+                            lower_high = df.iloc[k]
+                            if lower_high['RSI'] > upper and \
+                                lower_high['Close'] > candle['Close'] and \
+                                lower_high['RSI'] < candle['RSI']:
+                                for l in range(k+1, i+width if i+width < max_i else max_i):
+                                    if upper > df.iloc[l]['RSI']:
+                                        long_condition.append(False)
+                                        short_condition.append(True)
+                                        done = True
+                                        break
+                            if done:
+                                break
+                    if done:
+                        break
+            
+            if not done:
+                long_condition.append(False)
+                short_condition.append(False)
+
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
 
 
 
@@ -3271,7 +3500,9 @@ class KSignals(SignalsTemplate):
 
 
 
-class Signals(PrimaryIndicatorSignals):
+
+
+class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals):
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
 
@@ -3279,26 +3510,26 @@ class Signals(PrimaryIndicatorSignals):
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+    # def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
-        try:
-            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
-            if 'Spread' not in df:
-                if errors:
-                    raise ValueError('"Spread" is not between the dataframe columns.')
-                else:
-                    self.df['Spread'] = [0]*len(self.df)
-                    print('"Spread" is not between the dataframe columns.')
-            if 'SLdist' not in df:
-                if errors:
-                    raise ValueError('"SLdist" is not between the dataframe columns.')
-                else:
-                    self.df['SLdist'] = [0]*len(self.df)
-                    print('"SLdist" is not between the dataframe columns.')
+    #     try:
+    #         self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+    #         if 'Spread' not in df:
+    #             if errors:
+    #                 raise ValueError('"Spread" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['Spread'] = [0]*len(self.df)
+    #                 print('"Spread" is not between the dataframe columns.')
+    #         if 'SLdist' not in df:
+    #             if errors:
+    #                 raise ValueError('"SLdist" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['SLdist'] = [0]*len(self.df)
+    #                 print('"SLdist" is not between the dataframe columns.')
 
-        except:
-            print(df)
-            raise(ValueError('Error trying to store the new DataFrame.'))
+    #     except:
+    #         print(df)
+    #         raise(ValueError('Error trying to store the new DataFrame.'))
     
     def turtlesBreakout(self, df:pd.DataFrame=None, 
                       n:int=100, strat_name:str='TBO') -> pd.DataFrame: 
