@@ -13,7 +13,7 @@ from indicators import Indicators
 #         raise ValueError(f'Strategy "{strat_name}" not between the tradeable ' + \
 #                             'list: '+','.join(list(strategies.keys())))
 
-class OscillatorSignals:
+class SignalsTemplate:
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
 
@@ -58,6 +58,52 @@ class OscillatorSignals:
             raise ValueError(f'No arguments for the indicator where given, check \
                             OscillatorSignals.indicators.{ind_name}() to get the \
                             needed arguments. At least the dataname should be given')
+
+class OscillatorSignals(SignalsTemplate):
+
+    def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
+
+        self._newDf(df)
+        self.indicators = Indicators(df)
+        self.shift = 1 if backtest else 0
+
+    # def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+
+    #     try:
+    #         self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+    #         if 'Spread' not in df:
+    #             if errors:
+    #                 raise ValueError('"Spread" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['Spread'] = [0]*len(self.df)
+    #                 print('"Spread" is not between the dataframe columns.')
+    #         if 'SLdist' not in df:
+    #             if errors:
+    #                 raise ValueError('"SLdist" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['SLdist'] = [0]*len(self.df)
+    #                 print('"SLdist" is not between the dataframe columns.')
+
+    #     except:
+    #         print(df)
+    #         raise(ValueError('Error trying to store the new DataFrame.'))
+        
+    # def getIndicators(self):
+
+    #     return [i for i in dir(self.indicators) if '_' not in i]
+
+    # def _checkIndicator(self, ind:str):
+
+    #     if ind not in self.getIndicators():
+    #         raise ValueError('Enter a valid indicator. You can check them calling \
+    #                          the getIndicators() function.') 
+    
+    # def _kwargsError(self, kwargs:dict, ind_name:str):
+
+    #     if len(kwargs) <= 0:
+    #         raise ValueError(f'No arguments for the indicator where given, check \
+    #                         OscillatorSignals.indicators.{ind_name}() to get the \
+    #                         needed arguments. At least the dataname should be given')
     
     def aggresive(self,df:pd.DataFrame=None, lower:float=30.0,
                 upper:float=70.0, ind_name:str='rsi', exit_signal:bool=False, 
@@ -739,10 +785,7 @@ class OscillatorSignals:
 
         return self.df
 
-
-
-
-class PrimaryIndicatorSignals:
+class PrimaryIndicatorSignals(SignalsTemplate):
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
 
@@ -750,26 +793,26 @@ class PrimaryIndicatorSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+    # def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
-        try:
-            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
-            if 'Spread' not in df:
-                if errors:
-                    raise ValueError('"Spread" is not between the dataframe columns.')
-                else:
-                    self.df['Spread'] = [0]*len(self.df)
-                    print('"Spread" is not between the dataframe columns.')
-            if 'SLdist' not in df:
-                if errors:
-                    raise ValueError('"SLdist" is not between the dataframe columns.')
-                else:
-                    self.df['SLdist'] = [0]*len(self.df)
-                    print('"SLdist" is not between the dataframe columns.')
+    #     try:
+    #         self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+    #         if 'Spread' not in df:
+    #             if errors:
+    #                 raise ValueError('"Spread" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['Spread'] = [0]*len(self.df)
+    #                 print('"Spread" is not between the dataframe columns.')
+    #         if 'SLdist' not in df:
+    #             if errors:
+    #                 raise ValueError('"SLdist" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['SLdist'] = [0]*len(self.df)
+    #                 print('"SLdist" is not between the dataframe columns.')
 
-        except:
-            print(df)
-            raise(ValueError('Error trying to store the new DataFrame.'))
+    #     except:
+    #         print(df)
+    #         raise(ValueError('Error trying to store the new DataFrame.'))
 
     def bollingerAggresive(self,df:pd.DataFrame=None, n:int=20, dev:float=2.0,
                         strat_name:str='BBAgr', exit_signal:bool=False
@@ -2202,10 +2245,7 @@ class PrimaryIndicatorSignals:
 
         return self.df
 
-
-
-
-class SecondaryIndicatorSignals:
+class SecondaryIndicatorSignals(SignalsTemplate):
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
 
@@ -2213,26 +2253,26 @@ class SecondaryIndicatorSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+    # def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
-        try:
-            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
-            if 'Spread' not in df:
-                if errors:
-                    raise ValueError('"Spread" is not between the dataframe columns.')
-                else:
-                    self.df['Spread'] = [0]*len(self.df)
-                    print('"Spread" is not between the dataframe columns.')
-            if 'SLdist' not in df:
-                if errors:
-                    raise ValueError('"SLdist" is not between the dataframe columns.')
-                else:
-                    self.df['SLdist'] = [0]*len(self.df)
-                    print('"SLdist" is not between the dataframe columns.')
+    #     try:
+    #         self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+    #         if 'Spread' not in df:
+    #             if errors:
+    #                 raise ValueError('"Spread" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['Spread'] = [0]*len(self.df)
+    #                 print('"Spread" is not between the dataframe columns.')
+    #         if 'SLdist' not in df:
+    #             if errors:
+    #                 raise ValueError('"SLdist" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['SLdist'] = [0]*len(self.df)
+    #                 print('"SLdist" is not between the dataframe columns.')
 
-        except:
-            print(df)
-            raise(ValueError('Error trying to store the new DataFrame.'))
+    #     except:
+    #         print(df)
+    #         raise(ValueError('Error trying to store the new DataFrame.'))
 
     def chandeMomentum(self,df:pd.DataFrame=None, n:int=14, lower:float=-0.5,
                        upper:float=0.5, strat_name:str='ChandMOsc', exit_signal:bool=False
@@ -2802,8 +2842,7 @@ class SecondaryIndicatorSignals:
 
         return self.df
 
-
-class KSignals:
+class KSignals(SignalsTemplate):
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False):
 
@@ -2811,26 +2850,26 @@ class KSignals:
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
 
-    def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
+    # def _newDf(self, df:pd.DataFrame, errors:bool=True) -> None:
 
-        try:
-            self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
-            if 'Spread' not in df:
-                if errors:
-                    raise ValueError('"Spread" is not between the dataframe columns.')
-                else:
-                    self.df['Spread'] = [0]*len(self.df)
-                    print('"Spread" is not between the dataframe columns.')
-            if 'SLdist' not in df:
-                if errors:
-                    raise ValueError('"SLdist" is not between the dataframe columns.')
-                else:
-                    self.df['SLdist'] = [0]*len(self.df)
-                    print('"SLdist" is not between the dataframe columns.')
+    #     try:
+    #         self.df = self.df.copy() if not isinstance(df, pd.DataFrame) else df
+    #         if 'Spread' not in df:
+    #             if errors:
+    #                 raise ValueError('"Spread" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['Spread'] = [0]*len(self.df)
+    #                 print('"Spread" is not between the dataframe columns.')
+    #         if 'SLdist' not in df:
+    #             if errors:
+    #                 raise ValueError('"SLdist" is not between the dataframe columns.')
+    #             else:
+    #                 self.df['SLdist'] = [0]*len(self.df)
+    #                 print('"SLdist" is not between the dataframe columns.')
 
-        except:
-            print(df)
-            raise(ValueError('Error trying to store the new DataFrame.'))
+    #     except:
+    #         print(df)
+    #         raise(ValueError('Error trying to store the new DataFrame.'))
         
     def envelopes(self,df:pd.DataFrame=None, n:int=14, strat_name:str='EnvStrat', 
                  exit_signal:bool=False) -> pd.DataFrame: 
@@ -3062,18 +3101,14 @@ class KSignals:
                   strat_name:str='SupRes', exit_signal:bool=False) -> pd.DataFrame: 
         
         '''
-        Buy when the Fibonacci pattern appears.
+        Buy when price crosses upwards the support.
 
         Parameters
         ----------
         df: pd.DataFrame
             DataFrame with the price data.
-        count: int
-            Counter for the pattern.
         n: int
-            Step one for the pattern.
-        m: int
-            Step two for the pattern.
+            Lookback for supports and resistances.
         lower: float
             Lower limit.
         upper: float
@@ -3122,7 +3157,61 @@ class KSignals:
                  strat_name:str='RevStrat', exit_signal:bool=False) -> pd.DataFrame: 
         
         '''
-        Buy when the Fibonacci pattern appears.
+        Buy when Price closes below lower Bollinger Band and MACD crosses upwards.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Lookback for the Bollinger Bands and MACD.
+        dev: float
+            Deviation for the Bollinger Bands.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        self._newDf(df)
+        df = self.df.copy()
+        
+        df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, datatype='Close', 
+                                            dataname='BB', new_df=df)
+        df = self.indicators.macd(a=12, b=26, c=9, datatype='Close', dataname='MACD', new_df=df)  
+
+
+        short_condition = ((df['Close'] > df['BBUP']) | (df['Open'] > df['BBUP'])) & \
+                        (df['MACD'] < df['MACDS']) & (df['MACD'].shift(1) > df['MACDS'].shift(1))
+        long_condition = ((df['Close'] < df['BBDN']) | (df['Open'] < df['BBDN'])) & \
+                        (df['MACD'] > df['MACDS']) & (df['MACD'].shift(1) < df['MACDS'].shift(1))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def volatBands(self,df:pd.DataFrame=None, n:int=20, mult:float=2,
+                 strat_name:str='VolatB', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when Close crosses downwards the lower Volatility Band.
 
         Parameters
         ----------
@@ -3152,15 +3241,12 @@ class KSignals:
         self._newDf(df)
         df = self.df.copy()
         
-        df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, datatype='Close', 
-                                            dataname='BB', new_df=df)
-        df = self.indicators.macd(a=12, b=26, c=9, datatype='Close', dataname='MACD', new_df=df)  
+        df = self.indicators.volatilityBands(n=n, multiplier=mult, datatype='Close', 
+                                            dataname='VB', new_df=df)
 
 
-        short_condition = ((df['Close'] > df['BBUP']) | (df['Open'] > df['BBUP'])) & \
-                        (df['MACD'] < df['MACDS']) & (df['MACD'].shift(1) > df['MACDS'].shift(1))
-        long_condition = ((df['Close'] < df['BBDN']) | (df['Open'] < df['BBDN'])) & \
-                        (df['MACD'] > df['MACDS']) & (df['MACD'].shift(1) < df['MACDS'].shift(1))
+        short_condition = (df['Close'] > df['VBUP']) & (df['Close'].shift(1) < df['VBUP'].shift(1))
+        long_condition = (df['Close'] < df['VBDN']) & (df['Close'].shift(1) > df['VBDN'].shift(1))
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 

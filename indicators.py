@@ -1764,6 +1764,55 @@ class Indicators:
             df = df.drop(['KATR'],axis=1)
             return df
 
+    def volatilityBands(self, n:int=20, multiplier:float=2,
+                       datatype:str='Close', dataname:str='VB', 
+                       new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Volatility Bands indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the bands.
+        multiplier: float
+            Number of time to use the volatility for the bands amplitude.
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is VB. There will be three final columns named:
+            dataname + 'UP' and dataname + 'DN'.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the VB.
+        '''
+        
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        # Calculamos la mediana
+        df['Median'] = (df[datatype].rolling(n).max() + df[datatype].rolling(n).min()/2)
+        df['Std'] = df[datatype].rolling(n).std(ddof=0)
+        df['MaxStd'] = df['Std'].rolling(n).max()
+        df[dataname+'DN'] = df['Median'] - multiplier * df['MaxStd']
+        df[dataname+'UP'] = df['Median'] + multiplier * df['MaxStd']
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname+'DN'] = df[dataname+'DN']
+            self.ohlc_df[dataname+'UP'] = df[dataname+'UP']
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['Median','Std','MaxStd'],axis=1)
+            return df
+
     def simpleFisher(self, n:int=10, m:int=3, p:int=3, method:str='s', 
                      dataname='simpleFisher', new_df:pd.DataFrame=None
                      ) -> pd.DataFrame:

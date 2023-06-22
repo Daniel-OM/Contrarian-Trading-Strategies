@@ -115,8 +115,17 @@ class DeGiro:
         df = ChartHelper.serie_to_df(serie=self.chart['series'][1])
         df['volume'] = ChartHelper.serie_to_df(serie=self.chart['series'][2])['volume']
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+        df.columns = ['DateTime', 'Open', 'High', 'Low', 'Close', 'Volume']
 
         return df
+    
+    def getCompanyProfile(self, isin:str):
+
+        return self.degiro.get_company_profile(
+            product_isin=isin,
+            raw=True,
+        )
+
 
 
 
@@ -126,3 +135,4 @@ if __name__ == '__main__':
     products = degiro.getProducts(exchange_id=663,country=846) # Nasdaq exchange
     asset = products.iloc[213] # AAPL -> vwdid = 350015372
     data = degiro.getPriceData(asset['vwdId'], 'PT1H', 'P5Y', tz='UTC')
+    profile = degiro.getCompanyProfile('FR0000131906')
