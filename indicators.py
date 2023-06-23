@@ -136,7 +136,7 @@ class Indicators:
         else:
             return self.fibSequence(n-1) + self.fibSequence(n-2)
         
-    def movingAverage(self, n:int=20, method:str='s', datatype:str='Close', 
+    def movingAverage(self, n:int=20, m:int=None, method:str='s', datatype:str='Close', 
             dataname:str=None, new_df:pd.DataFrame=None) -> pd.DataFrame:
 
         '''
@@ -146,6 +146,8 @@ class Indicators:
         ----------
         n: int
             Length of the indicator.
+        m: int
+            Length of the larger volatility for adjusting with the VAMA method.
         method: str
             Calculation method used for the moving average. It can be:
             - Simple: s (default)
@@ -154,6 +156,7 @@ class Indicators:
             - Volume Weighted: v
             - VWAP: vwap
             - Fibonacci: f
+            - Volatility adjusted: vama
         datatype: str
             Column name to which apply the indicator. Default is Close.
         dataname: str
@@ -175,51 +178,42 @@ class Indicators:
         # Simple Moving Average
         if method == 's':
             if dataname == None:
-                df['SMA'] = df[datatype].rolling(n).mean()
-            else:
-                df[dataname] = df[datatype].rolling(n).mean()
+                dataname = 'SMA'
+            df[dataname] = df[datatype].rolling(n).mean()
 
         # Exponential Moving Average
         elif method == 'e':
             if dataname == None:
-                df['EMA'] = df[datatype]\
-                                .ewm(span=n,adjust=False,min_periods=n).mean()
-            else:
-                df[dataname] = df[datatype]\
-                                .ewm(span=n,adjust=False,min_periods=n).mean()
+                dataname = 'EMA'
+            df[dataname] = df[datatype]\
+                            .ewm(span=n,adjust=False,min_periods=n).mean()
 
         # Weighted Moving Average
         elif method == 'w':
             weights = np.arange(1,n+1)
             if dataname == None:
-                df['LWMA'] = df[datatype].rolling(n)\
-                                .apply(lambda prices: np.dot(prices, weights)/weights.sum(), raw=True)
-            else:
-                df[dataname] = df[datatype].rolling(n)\
-                                .apply(lambda prices: np.dot(prices, weights)/weights.sum(), raw=True)
+                dataname = 'LWMA'
+            df[dataname] = df[datatype].rolling(n)\
+                            .apply(lambda prices: np.dot(prices, weights)/weights.sum(), raw=True)
         
         # Volume Weighted Moving Average
         elif method == 'v':
             if 'Volume' in df.columns:
                 # df[dataname] = (df[datatype] * df['Volume']) / df['Volume'].rolling(n).cumsum()
                 if dataname == None:
-                    df['VWMA'] = (df[datatype].rolling(n).mean() * df['Volume']) / df['Volume'].rolling(n).cumsum()
-                else:
-                    df[dataname] = (df[datatype].rolling(n).mean() * df['Volume']) / df['Volume'].rolling(n).cumsum()
+                    dataname = 'VWMA'
+                df[dataname] = (df[datatype].rolling(n).mean() * df['Volume']) / df['Volume'].rolling(n).cumsum()
             else:
                 if dataname == None:
-                    df['SMA'] = df[datatype].rolling(n).mean()
-                else:
-                    df[dataname] = df[datatype].rolling(n).mean()
+                    dataname = 'SMA'
+                df[dataname] = df[datatype].rolling(n).mean()
 
         # Volume Weighted Average Price
         elif method == 'vwap':
             if dataname == None:
-                df['VWAP'] = (df['Volume'] * (df['High'] + df['Low']) / 2).cumsum() \
-                              / df['Volume'].cumsum()
-            else:
-                df[dataname] = (df['Volume'] * (df['High'] + df['Low']) / 2).cumsum() \
-                                / df['Volume'].cumsum()
+                dataname = 'VWAP'
+            df[dataname] = (df['Volume'] * (df['High'] + df['Low']) / 2).cumsum() \
+                            / df['Volume'].cumsum()
         
         # Fibonacci Moving Average
         elif method == 'f':
@@ -235,11 +229,26 @@ class Indicators:
             temp_df['SUM'] = temp_df.sum(axis=1,skipna=False)
             df[dataname] = temp_df['SUM']/(n-3)
 
+        # Volatility adjusted
+        elif method == 'vama':
+            if dataname == None:
+                dataname = 'VAMA'
+            vol1 = df[datatype].rolling(n).std(ddof=0)
+            vol2 = df[datatype].rolling(m).std(ddof=0)
+            alpha = 0.2 * vol1/vol2
+            df[dataname] = alpha * df['Close'] + (1-alpha) * df['Close'].shift(1)
+            vama = []
+            for i, idx in enumerate(df.index):
+                if i == 0:
+                    vama = df[dataname].loc[idx]
+                else:
+                    vama = alpha.iloc[i], df['Close'].loc[idx] + (1-alpha.iloc[i]) * vama[-1]
+            df[dataname] = vama
+
         else:
             if dataname == None:
-                df['SMA'] = df[datatype].rolling(n).mean()
-            else:
-                df[dataname] = df[datatype].rolling(n).mean()
+                dataname = 'SMA'
+            df[dataname] = df[datatype].rolling(n).mean()
         
         if not isinstance(new_df, pd.DataFrame):
             self.ohlc_df[dataname] = df[dataname]
@@ -940,6 +949,70 @@ class Indicators:
             return self.ohlc_df
         
         else:
+            return df
+
+    def vamaBands(self, n:int=20, m:int=100, p:int=30, desvi:float=2., 
+                    datatype:str='Close', dataname:str='VB',
+                    new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Bollinger Bands.
+
+        Parameters
+        ----------
+        n: int
+            Length of the moving average.
+        m: int
+            Length of the larger volatility for adjusting with the VAMA method.
+        p: int
+            Length for the volatility.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+            - Volatility adjusted: vama
+        desvi: float
+            Multiplier for the bands amplitude.
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting columns in the DataFrame with the data.
+            Default is BB. The suffix 'UP', 'DN' and 'W' will be added for the 
+            upper and lower band and the width of the bands.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the upper, lower and width 
+            of the bands.
+        '''
+
+        if not isinstance(new_df, pd.DataFrame):
+            df = self.ohlc_df.copy()
+        else:
+            df = new_df.copy()
+
+        df = self.movingAverage(n=n, m=m, method='vama', datatype=datatype, 
+                                dataname='TempMA', new_df=df)
+        std = df[datatype].rolling(p).std(ddof=0)
+        df[dataname+'UP'] = df['TempMA'] + desvi*std
+        df[dataname+'DN'] = df['TempMA'] - desvi*std
+        df[dataname+'W'] = df[dataname+'UP'] - df[dataname+'DN']
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname+'UP'] = df[dataname+'UP']
+            self.ohlc_df[dataname+'DN'] = df[dataname+'DN']
+            self.ohlc_df[dataname+'W'] = df[dataname+'W']
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['TempMA'],axis=1)
             return df
 
     def bollingerBands(self, n:int=20, method:str='s', desvi:float=2., 
@@ -1814,7 +1887,7 @@ class Indicators:
             return df
 
     def simpleFisher(self, n:int=10, m:int=3, p:int=3, method:str='s', 
-                     dataname='simpleFisher', new_df:pd.DataFrame=None
+                     dataname='SFisher', new_df:pd.DataFrame=None
                      ) -> pd.DataFrame:
 
         '''
