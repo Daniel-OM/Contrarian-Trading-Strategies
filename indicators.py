@@ -104,8 +104,10 @@ class Indicators:
             'High' and the low column 'Low
         '''
 
-        if ohlc != None and isinstance(ohlc, pd.DataFrame):
+        if isinstance(ohlc, pd.DataFrame):
             self.ohlc_df = ohlc
+        elif ohlc != None:
+            print('Data must be given in DataFrame format.')
 
     def _labelCheck(self, label:str) -> None:
         
@@ -242,7 +244,7 @@ class Indicators:
                 if i == 0:
                     vama = df[dataname].loc[idx]
                 else:
-                    vama = alpha.iloc[i], df['Close'].loc[idx] + (1-alpha.iloc[i]) * vama[-1]
+                    vama = (alpha.iloc[i] * df['Close'].loc[idx]) + (1-alpha.iloc[i]) * vama[-1]
             df[dataname] = vama
 
         else:
@@ -648,7 +650,7 @@ class Indicators:
             return df
 
     def slope(self, n:int=1, datatype:str='Close', dataname:str='Slope', 
-              pct:bool=True, new_df:pd.DataFrame=None) -> pd.DataFrame:
+              pct:bool=False, new_df:pd.DataFrame=None) -> pd.DataFrame:
 
         '''
         Calculates the Rate of Slope indicator.
@@ -844,7 +846,8 @@ class Indicators:
             df = new_df.copy()
 
         # Get the ATR
-        df = self.atr(n=n,method=method,dataname='ATR', new_df=df)
+        if 'ATR' not in df.columns:
+            df = self.atr(n=n,method=method,dataname='ATR', new_df=df)
 
         # Calculate the basic bands
         df['basic_up'] = (df['High']+df['Low'])/2+mult*df['ATR']
@@ -887,6 +890,7 @@ class Indicators:
                     else:
                         fd[i] = fd[i-1]
         
+        # Get super trend
         supertrend = [0]*len(data)
         for i in range(len(supertrend)):
             if data[i] <= fu[i]:
@@ -1115,7 +1119,7 @@ class Indicators:
             df = new_df.copy()
 
         # Calculamos las bandas de bollinger
-        df = self.bollingerBands(n, desvi, datatype, datatype=datatype, 
+        df = self.bollingerBands(n=n, desvi=desvi, datatype=datatype, 
                                       dataname='BB', new_df=df)
         # Calculamos el porcentaje en el que se encuentra el precio desde la banda superior respecto el ancho de la banda
         df[dataname] = df[datatype] - df['BBUP']/df['BBW']*100
@@ -1292,7 +1296,7 @@ class Indicators:
         else:
             df = new_df.copy()
 
-        df = self.atr(n=n, method=method, dataname=dataname+'ATR', ned_df=df)
+        df = self.atr(n=n, method=method, dataname=dataname+'ATR', new_df=df)
         df = self.rsi(n=m, method=method, datatype=datatype, dataname=dataname+'RSI', 
                       new_df=df)
         df[dataname] = df[dataname+'RSI'] / df[dataname+'ATR']
@@ -1871,7 +1875,7 @@ class Indicators:
             df = new_df.copy()
 
         # Calculamos la mediana
-        df['Median'] = (df[datatype].rolling(n).max() + df[datatype].rolling(n).min()/2)
+        df['Median'] = (df['High'].rolling(n).max() + df['Low'].rolling(n).min())/2
         df['Std'] = df[datatype].rolling(n).std(ddof=0)
         df['MaxStd'] = df['Std'].rolling(n).max()
         df[dataname+'DN'] = df['Median'] - multiplier * df['MaxStd']
