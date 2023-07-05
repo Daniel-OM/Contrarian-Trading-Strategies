@@ -1,27 +1,123 @@
 
 import numpy as np
 import pandas as pd
+import copy
 
-class Charts:
-
+class OHLC:
+    
     ''' 
-    Class for formating the candles to other type of charts.
+    Class for manipulating OHLC Dataframes.
     '''
 
-    def __init__(self, df:pd.DataFrame):
+    ohlc_df = None
+
+    def __init__(self, ohlc:pd.DataFrame=None, errors:bool=True, 
+                 verbose:bool=True) -> None:
 
         '''
-        Function initiate the Charts class.
+        Function initiate the Indicators class.
+
+        Parameters
+        ----------
+        ohlc: pd.DataFrame
+            DataFrame with OHCL data for an asset. The open columns must 
+            be named 'Open', the close column 'Close', the high column
+            'High' and the low column 'Low
+        
+        '''
+
+        self.errors = errors
+        self.verbose = verbose
+        self._newDf(ohlc, overwrite=True)
+
+    def _deepcopy(self, df:pd.DataFrame) -> pd.DataFrame:
+
+        '''
+        Calculates the nth number of the fFibonacci sequence.
+
+        Parameters
+        ----------
+        n: int
+            Number of the sequence to return.
+
+        Returns
+        -------
+        value: int
+            Number of the fibonacci sequence.
+        '''
+        
+        new_df = pd.DataFrame()
+        for c in df.columns:
+            new_df[c] = df[c].copy(deep=True)
+        
+        return new_df
+    
+    def _newDf(self, df:pd.DataFrame, needed_cols=['Open', 'High', 'Low', 'Close'], 
+               overwrite:bool=True) -> None:
+
+        '''
+        Checks if the new data is in the correct format and contains the needed 
+        columns.
 
         Parameters
         ----------
         df: pd.DataFrame
-            DataFrame with OHCL data for an asset. The open columns must 
-            be named 'Open', the close column 'Close', the high column
-            'High' and the low column 'Low
+            Data in Dataframe format.
+        needed_cols: list
+            List of the columns needed in the Dataframe.
+        overwrite: bool
+            True to overwrite the current object's data.
         '''
 
-        self.ohlc_df = df
+        if isinstance(df, pd.DataFrame):
+            rename_dict = {}
+            columns = df.columns
+            for col in needed_cols: 
+                if col.lower() not in [c.lower() for c in columns]:
+                    if self.errors:
+                        raise ValueError(f'"{col}" is not between the dataframe columns.')
+                    else:
+                        df[col] = [0]*len(df)
+                        if self.verbose:
+                            print(f'"{col}" is not between the dataframe columns.')
+                elif col not in [c for c in columns]:
+                    rename_dict[[c for c in columns if c == col.lower()][0]] = col
+            
+            if len(rename_dict) > 0:
+                df.rename(columns=rename_dict, inplace=True)
+
+            if overwrite:
+                self.ohlc_df = df.copy(deep=True)#self._deepcopy(df)
+                return self.ohlc_df
+            else:
+                return df.copy(deep=True)
+
+        elif not isinstance(self.ohlc_df, pd.DataFrame):
+            raise ValueError('There is no DataFrame with data to use.')
+        
+        return self.ohlc_df.copy(deep=True)
+
+    def _labelCheck(self, label:str) -> None:
+
+        '''
+        Checks if the column exists.
+
+        Parameters
+        ----------
+        label: str
+            Columns name to check.
+        '''
+        
+        if label not in self.ohlc_df.columns:
+            raise ValueError('The column name is not in the DataFrame. These ' + \
+                             f'are the valid column names: {self.ohlc_df.columns}')
+
+
+class Charts(OHLC):
+
+    ''' 
+    Class for formating the candles to other type of charts.
+    '''
 
     def heiken_ashi(self,openHA:bool=False):
 
@@ -85,35 +181,11 @@ class Charts:
 
 
 
-class Indicators:
+class Indicators(OHLC):
 
     ''' 
     Class with all the indicators.
     '''
-
-    def __init__(self, ohlc:pd.DataFrame=None):
-
-        '''
-        Function initiate the Indicators class.
-
-        Parameters
-        ----------
-        df: pd.DataFrame
-            DataFrame with OHCL data for an asset. The open columns must 
-            be named 'Open', the close column 'Close', the high column
-            'High' and the low column 'Low
-        '''
-
-        if isinstance(ohlc, pd.DataFrame):
-            self.ohlc_df = ohlc
-        elif ohlc != None:
-            print('Data must be given in DataFrame format.')
-
-    def _labelCheck(self, label:str) -> None:
-        
-        if label not in self.df.columns:
-            raise ValueError('The column name is not in the DataFrame. These ' + \
-                             f'are the valid column names: {self.df.columns}')
         
     def fibSequence(self, n:int) -> int:
 
@@ -172,10 +244,7 @@ class Indicators:
             Contains all the DataFrame data plus the Moving average.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         # Simple Moving Average
         if method == 's':
@@ -206,6 +275,7 @@ class Indicators:
                     dataname = 'VWMA'
                 df[dataname] = (df[datatype].rolling(n).mean() * df['Volume']) / df['Volume'].rolling(n).cumsum()
             else:
+                print('There is no Volume column in the DataFrame passed, a SMA is calculated instead.')
                 if dataname == None:
                     dataname = 'SMA'
                 df[dataname] = df[datatype].rolling(n).mean()
@@ -235,23 +305,30 @@ class Indicators:
         elif method == 'vama':
             if dataname == None:
                 dataname = 'VAMA'
+
             vol1 = df[datatype].rolling(n).std(ddof=0)
             vol2 = df[datatype].rolling(m).std(ddof=0)
             alpha = 0.2 * vol1/vol2
-            df[dataname] = alpha * df['Close'] + (1-alpha) * df['Close'].shift(1)
+            df[dataname] = alpha * df[datatype] + (1-alpha) * df[datatype].shift(1)
+
             vama = []
+            c = 0
             for i, idx in enumerate(df.index):
-                if i == 0:
-                    vama = df[dataname].loc[idx]
+                if df[dataname].loc[idx] != df[dataname].loc[idx] or c == 0:
+                    vama.append(df[dataname].loc[idx])
+                    if vama[-1] == vama[-1]:
+                        c += 1
                 else:
-                    vama = (alpha.iloc[i] * df['Close'].loc[idx]) + (1-alpha.iloc[i]) * vama[-1]
+                    vama.append((alpha.iloc[i] * df[datatype].loc[idx]) + (1-alpha.iloc[i]) * vama[-1])
+
             df[dataname] = vama
 
         else:
+            print('No method was passed so a SMA is calculated.')
             if dataname == None:
                 dataname = 'SMA'
             df[dataname] = df[datatype].rolling(n).mean()
-        
+
         if not isinstance(new_df, pd.DataFrame):
             self.ohlc_df[dataname] = df[dataname]
             return self.ohlc_df
@@ -291,11 +368,8 @@ class Indicators:
             Contains all the DataFrame data plus the Dochian Channel bands.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
+        df = self._newDf(new_df, overwrite=False)
+        
         # Calculate necesary data
         df = self.movingAverage(n=2*n,method=method,datatype=datatype,
                                 dataname='MTMA1',df=df)
@@ -337,10 +411,7 @@ class Indicators:
             Contains all the DataFrame data plus the Vortex bands.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos datos necesarios
         df = self.atr(n=1,dataname='TempATR', new_df=df)
@@ -397,10 +468,7 @@ class Indicators:
             Contains all the DataFrame data plus the Envelopes bands.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.movingAverage(n=n,method=method,datatype=datatype,
                                 dataname=dataname+'MA', new_df=df)
@@ -446,10 +514,7 @@ class Indicators:
             lines.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
         
         close = df['Close'].tolist()
         low = df['Low'].tolist()
@@ -528,10 +593,7 @@ class Indicators:
             Contains all the DataFrame data plus the Rate of Change.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df[dataname] = (df[datatype]/df[datatype].shift(n) - 1)
         if pct:
@@ -569,10 +631,7 @@ class Indicators:
             Contains all the DataFrame data plus the Efficiency Ratio.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df['change'] = abs(df[datatype]-df[datatype].shift(n))
         df['volatility'] = abs(df[datatype]-df[datatype].shift(1))
@@ -614,10 +673,7 @@ class Indicators:
             Contains all the DataFrame data plus the KAMA.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
     
         # Calculamos los datos principales
         df = self.efficiencyRatio(n=n, datatype=datatype, dataname='ER', 
@@ -675,10 +731,7 @@ class Indicators:
             Contains all the DataFrame data plus the Slope.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df[dataname] = (df[datatype] - df[datatype].shift(n)) / n
 
@@ -724,10 +777,7 @@ class Indicators:
             Contains all the DataFrame data plus the ATR.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         # Definition of data needed for the TR
         df['H-L'] = abs(df['High']-df['Low'])
@@ -784,10 +834,7 @@ class Indicators:
             Contains all the DataFrame data plus the ACR.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
             
         df['ratio'] = df['High']/df['Low']
         df = self.movingAverage(n=n,method=method,datatype='ratio',
@@ -840,10 +887,7 @@ class Indicators:
             Contains all the DataFrame data plus the Super Trend.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         # Get the ATR
         if 'ATR' not in df.columns:
@@ -938,11 +982,7 @@ class Indicators:
             Contains all the DataFrame data plus the DC.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
+        df = self._newDf(new_df, overwrite=False)
 
         df[dataname+'UP'] = df[high_data].rolling(n).max() 
         df[dataname+'DN'] = df[low_data].rolling(n).min() 
@@ -997,10 +1037,7 @@ class Indicators:
             of the bands.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.movingAverage(n=n, m=m, method='vama', datatype=datatype, 
                                 dataname='TempMA', new_df=df)
@@ -1056,10 +1093,7 @@ class Indicators:
             of the bands.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.movingAverage(n=n, method=method, datatype=datatype, 
                                 dataname='TempMA', new_df=df)
@@ -1113,10 +1147,7 @@ class Indicators:
             Contains all the DataFrame data plus the %BB.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos las bandas de bollinger
         df = self.bollingerBands(n=n, desvi=desvi, datatype=datatype, 
@@ -1171,10 +1202,7 @@ class Indicators:
             signal.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
             
         # Calculamos medias móviles exponenciales
         df = self.movingAverage(n=a, method=method, datatype=datatype, dataname='MA_Fast', new_df = df)
@@ -1226,10 +1254,7 @@ class Indicators:
             Contains all the DataFrame data plus the RSI.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
             
         df['delta'] = df[datatype] - df[datatype].shift(1)
         df['gain'] = np.where(df['delta']>=0, df['delta'], 0)
@@ -1250,8 +1275,7 @@ class Indicators:
             return self.ohlc_df
         
         else:
-            df = df.drop(['delta','gain','loss','avg_gain','avg_loss','RS'],
-                         axis=1)
+            df = df.drop(['delta','gain','loss','avg_gain','avg_loss','RS'], axis=1)
             return df
 
     def rsiAtr(self, n:int=14, m:int=14, o:int=14, method:str='e', 
@@ -1291,10 +1315,7 @@ class Indicators:
             Contains all the DataFrame data plus the RSI.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.atr(n=n, method=method, dataname=dataname+'ATR', new_df=df)
         df = self.rsi(n=m, method=method, datatype=datatype, dataname=dataname+'RSI', 
@@ -1341,10 +1362,7 @@ class Indicators:
             Contains all the DataFrame data plus the ADX.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.atr(n=n, method=method, dataname='ATR', tr=False, new_df=df)
 
@@ -1433,10 +1451,7 @@ class Indicators:
             Contains all the DataFrame data plus the SO.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         if datatype == None:
             df['k'] = ((df['Close'] - df['Low'].rolling(n).min()) / \
@@ -1484,10 +1499,7 @@ class Indicators:
             Contains all the DataFrame data plus the MO.
         '''
 
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+        df = self._newDf(new_df, overwrite=False)
 
         df[dataname] = (df[datatype] / df[datatype].shift(n))*100
         
@@ -1530,11 +1542,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the AO.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df['Midpoint'] = (df['High']+df['Low'])/2
         df = self.movingAverage(n=n, method=method, datatype='Midpoint', 
@@ -1584,11 +1593,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the LO.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df['Midpoint'] = (df['High']+df['Low'])/2
         df = self.movingAverage(n=n, method=method, datatype='Midpoint', 
@@ -1638,11 +1644,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the AccO.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
 
         df = self.awesomeOscillator(n=n, m=m, method=method, dataname='AO', 
@@ -1688,11 +1691,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the CCI.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df['TipicalPrice'] = (df['Close'] + df['High'] + df['Low']) / 3
         df = self.movingAverage(n=n, method=method, datatype='TipicalPrice', 
@@ -1742,11 +1742,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the W%.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos los datos necesarios
         df['Highest'] = df['High'].rolling(n).max()
@@ -1812,11 +1809,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the KC.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos el ATR
         df = self.atr(n=atrn, method=atrmethod, dataname='KATR', new_df=df)
@@ -1828,8 +1822,6 @@ class Indicators:
         # Calculamos el canal de keltner
         df[dataname+'UP'] = df[dataname+'M'] + multiplier*df['KATR']
         df[dataname+'DN'] = df[dataname+'M'] - multiplier*df['KATR']
-
-        self.ohlc_df = self.ohlc_df.drop(['KATR'],axis=1)
         
         if not isinstance(new_df, pd.DataFrame):
             self.ohlc_df[dataname+'DN'] = df[dataname+'DN']
@@ -1868,11 +1860,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the VB.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos la mediana
         df['Median'] = (df['High'].rolling(n).max() + df['Low'].rolling(n).min())/2
@@ -1924,11 +1913,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the FT.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.stochasticOscillator(n=n, m=m, p=p, method=method, dataname='SFSO', 
                                        new_df=df)
@@ -1974,11 +1960,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the FT.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df['Median'+dataname] = (df['High'] + df['Low']) / 2
         df['max'+dataname] = df['Median'+dataname].rolling(n).max()
@@ -2041,11 +2024,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the FT.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.fisher(n=n,alpha=alpha,dataname='TempFisher')
         df = self.movingAverage(n=eman, method='e', 
@@ -2092,11 +2072,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the FT.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculamos el indicador estocastico
         df['mf'] = ((df[datatype] - df['Low'].rolling(n).min()) / \
@@ -2150,11 +2127,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the TI.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df = self.movingAverage(n=n, method=method, 
                                           datatype=datatype, 
@@ -2195,11 +2169,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the CMO.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df['Higher'] = np.where(df[datatype] > df[datatype].shift(1), 
                                 df[datatype] - df[datatype].shift(1), 0)
@@ -2240,11 +2211,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the MBFX.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         oscilator = [0]*len(df)
         downmove = [0]*len(df)
@@ -2370,11 +2338,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the indicator columns.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
         
         df[dataname+'UP'] = np.where((df['Close'] > df['Open']), 
                                   df['High'] - df['Close'],
@@ -2429,11 +2394,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the indicator columns.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         df[dataname+'UP'] = np.where((df['Close'] > df['Open']), 
                                 df['Close'] - df['Open'], 0)
@@ -2454,6 +2416,261 @@ class Indicators:
             df = df.drop([dataname+'UPMA',dataname+'DNMA'],axis=1)
             return df
     
+    def demarker(self, n:int=14, method:str='s', dataname:str='DeMark', 
+                 new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the DeMarker Oscillator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the indicator.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        dataname: str
+            Name of the resulting column containing the indicator values.
+            Default is DeMark.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+            
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DeMark.
+        '''
+
+        df = self._newDf(new_df, overwrite=False)
+
+        df['DeMAX'] = np.where(df['High'] > df['High'].shift(1), 
+                               df['High'] - df['High'].shift(1), 0)
+        df['DeMIN'] = np.where(df['Low'] < df['Low'].shift(1), 
+                               df['High'].shift(1) - df['High'], 0)
+        
+        df = self.movingAverage(n=n, method=method, datatype='DeMAX', 
+                                dataname='DMaxMAtemp', new_df=df)
+        df = self.movingAverage(n=n, method=method, datatype='DeMIN', 
+                                dataname='DMinMAtemp', new_df=df)
+        
+        df[dataname] = df['DMaxMAtemp'] / (df['DMaxMAtemp'] + df['DMinMAtemp'])
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['DeMAX', 'DeMIN', 'DMaxMAtemp', 'DMinMAtemp'],axis=1)
+            return df
+
+    def detrendedOscillator(self, n:int=10, method:str='s', datatype:str='Close',
+                            dataname:str='DeTrend', new_df:pd.DataFrame=None
+                            ) -> pd.DataFrame:
+
+        '''
+        Calculates the Detrended Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the moving average.
+        method: str
+            Calculation method used for the moving average. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DeTrend.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DeTrend.
+        '''
+
+        df = self._newDf(new_df, overwrite=False)
+        
+        df = self.movingAverage(n=n, method=method, datatype=datatype, 
+                                dataname='DeTrendMA', new_df=df)
+        
+        df[dataname] = df[datatype].shift(int(n/2+1)) - df['DeTrendMA']
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            df = df.drop(['DeTrendMA'],axis=1)
+            return df
+
+    def directionalProbOscillator(self, n:int=10, dataname:str='DProb', 
+                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Directional Probability Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the moving average.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DProb.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the DProb.
+        '''
+
+        df = self._newDf(new_df, overwrite=False)
+            
+        df[dataname] = np.where(df['Close'] > df['Open'], 1, 0)
+        df[dataname] = df[dataname].rolling(n).sum()
+        df[dataname] = df[dataname]/n 
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            return self.ohlc_df
+        
+        else:
+            return df
+
+    def sar(self, af:float=0.02, amax:float=0.2, dataname:str='PSAR', 
+            new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the SAR indicator.
+
+        Parameters
+        ----------
+        af: float
+            Acceleration factor.
+        amax float
+            Maximum acceleration factor.
+        dataname: str
+            Name of the resulting column in the DataFrame with the data.
+            Default is DProb.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the PSAR.
+        '''
+
+        df = self._newDf(new_df, overwrite=False)
+
+        # Starting values
+        high = df['High']
+        low = df['Low']
+        sig0, xpt0, af0 = True, high[0], af
+        sar = [low[0] - (high - low).std()]
+        for i in range(1, len(df)):
+            sig1, xpt1, af1 = sig0, xpt0, af0
+            lmin = min(low[i - 1], low[i])
+            lmax = max(high[i - 1], high[i])
+            if sig1:
+                sig0 = low[i] > sar[-1]
+                xpt0 = max(lmax, xpt1)
+            else:
+                sig0 = high[i] >= sar[-1]
+                xpt0 = min(lmin, xpt1)
+            if sig0 == sig1:
+                sari = sar[-1] + (xpt1 - sar[-1])*af1
+                af0 = min(amax, af1 + af)
+                if sig0:
+                    af0 = af0 if xpt0 > xpt1 else af1
+                    sari = min(sari, lmin)
+                else:
+                    af0 = af0 if xpt0 < xpt1 else af1
+                    sari = max(sari, lmax)
+            else:
+                af0 = af
+                sari = xpt0
+            sar.append(sari)      
+
+        df[dataname] = sar  
+        
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = sar
+            return self.ohlc_df
+        
+        else:
+            return df
+
+    def relativeVigorOscillator(self, n:int=10, method:str='s', dataname:str='RVI', 
+                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
+
+        '''
+        Calculates the Relative Vigor Index Oscillator indicator.
+
+        Parameters
+        ----------
+        n: int
+            Length of the indicator.
+        method: str
+            Calculation method used for the moving averages. It can be:
+            - Simple: s (default)
+            - Exponential: e
+            - Weighted: w
+            - Volume Weighted: v
+            - VWAP: vwap
+            - Fibonacci: f
+        datatype: str
+            Column name to which apply the indicator. Default is Close.
+        dataname: str
+            Name of the resulting columns in the DataFrame with the data.
+            Default is RVI.
+        new_df: pd.DataFrame
+            DataFrame to use in case you don't want to use the object data.
+
+        Returns
+        -------
+        ohlc_df: pd.DataFrame
+            Contains all the DataFrame data plus the RVI and the RVISig.
+        '''
+
+        df = self._newDf(new_df, overwrite=False)
+
+        df[dataname+'Num'] = (df['Close']-df['Open']) + (2*(df['Close'] - df['Open'].shift(1))) \
+                            + (2*(df['Close'] - df['Open'].shift(2))) + (df['Close'] - df['Open'].shift(3))
+        df = self.movingAverage(n=n, method=method, datatype=dataname+'Num', 
+                                dataname=dataname+'Num', new_df=df)
+        df[dataname+'Den'] = (df['High']-df['Low']) + (2*(df['High'] - df['Low'].shift(1))) \
+                            + (2*(df['High'] - df['Low'].shift(2))) + (df['High'] - df['Low'].shift(3))
+        df = self.movingAverage(n=n, method=method, datatype=dataname+'Den', 
+                                dataname=dataname+'Den', new_df=df)
+
+        df[dataname] = df[dataname+'Num'] / df[dataname+'Den']
+        df[dataname+'Sig'] = ((df[dataname]) + (2*(df[dataname].shift(1))) \
+                            + (2*(df[dataname].shift(2))) + (df[dataname].shift(3))) / 6
+
+        if not isinstance(new_df, pd.DataFrame):
+            self.ohlc_df[dataname] = df[dataname]
+            self.ohlc_df[dataname+'Sig'] = df[dataname+'Sig']
+            return self.ohlc_df
+        
+        else:
+            df.drop(columns=[dataname+'Num', dataname+'Den'], inplace=True)
+            return df
+
     # Funcion para medir el rango de vela que se superpone
     def rangeOverlay(self,n=20):
         '''
@@ -2528,11 +2745,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the MB.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
         
         df['Returns'] = df[datatype] / df[datatype].shift(1) - 1
         df = self.movingAverage(n=n, method=method, datatype='Returns', 
@@ -2593,11 +2807,8 @@ class Indicators:
         ohlc_df: pd.DataFrame
             Contains all the DataFrame data plus the MB.
         '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
+
+        df = self._newDf(new_df, overwrite=False)
 
         # Calculate the first set of Bollinger Bands
         df[dataname+'MA1'] = df[datatype].rolling(window=window1).mean()
@@ -2627,11 +2838,10 @@ class Indicators:
     def doubleRiccochet(self, df:pd.DataFrame=None, window1:int=10, window2:int=20, 
                         offset:int=1, delay:int=1, inverse:bool=False, 
                         new_df:pd.DataFrame=None) -> pd.DataFrame:
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
 
-        df = self.riccochet(df, window1, window2, drop=False)
+        df = self._newDf(new_df, overwrite=False)
+
+        df = self.riccochet(df, window1, window2, drop=False, new_df=new_df)
 
         if delay + offset < 0 or delay < 0:
             raise ValueError('You are trying to look in the future!')
@@ -2661,301 +2871,34 @@ class Indicators:
 
         return df
 
-    def demarker(self, n:int=14, method:str='s', dataname:str='DeMark', 
-                 new_df:pd.DataFrame=None) -> pd.DataFrame:
-
-        '''
-        Calculates the DeMarker Oscillator.
-
-        Parameters
-        ----------
-        n: int
-            Length of the indicator.
-        method: str
-            Calculation method used for the moving average. It can be:
-            - Simple: s (default)
-            - Exponential: e
-            - Weighted: w
-            - Volume Weighted: v
-            - VWAP: vwap
-            - Fibonacci: f
-        dataname: str
-            Name of the resulting column containing the indicator values.
-            Default is DeMark.
-        new_df: pd.DataFrame
-            DataFrame to use in case you don't want to use the object data.
-            
-        Returns
-        -------
-        ohlc_df: pd.DataFrame
-            Contains all the DataFrame data plus the DeMark.
-        '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
-        df['DeMAX'] = np.where(df['High'] > df['High'].shift(1), 
-                               df['High'] - df['High'].shift(1), 0)
-        df['DeMIN'] = np.where(df['Low'] < df['Low'].shift(1), 
-                               df['High'].shift(1) - df['High'], 0)
-        
-        df = self.movingAverage(n=n, method=method, datatype='DeMAX', 
-                                dataname='DMaxMAtemp', new_df=df)
-        df = self.movingAverage(n=n, method=method, datatype='DeMIN', 
-                                dataname='DMinMAtemp', new_df=df)
-        
-        df[dataname] = df['DMaxMAtemp'] / (df['DMaxMAtemp'] + df['DMinMAtemp'])
-        
-        if not isinstance(new_df, pd.DataFrame):
-            self.ohlc_df[dataname] = df[dataname]
-            return self.ohlc_df
-        
-        else:
-            df = df.drop(['DeMAX', 'DeMIN', 'DMaxMAtemp', 'DMinMAtemp'],axis=1)
-            return df
-
-    def detrendedOscillator(self, n:int=10, method:str='s', datatype:str='Close',
-                            dataname:str='DeTrend', new_df:pd.DataFrame=None
-                            ) -> pd.DataFrame:
-
-        '''
-        Calculates the Detrended Oscillator indicator.
-
-        Parameters
-        ----------
-        n: int
-            Length of the moving average.
-        method: str
-            Calculation method used for the moving average. It can be:
-            - Simple: s (default)
-            - Exponential: e
-            - Weighted: w
-            - Volume Weighted: v
-            - VWAP: vwap
-            - Fibonacci: f
-        datatype: str
-            Column name to which apply the indicator. Default is Close.
-        dataname: str
-            Name of the resulting column in the DataFrame with the data.
-            Default is DeTrend.
-        new_df: pd.DataFrame
-            DataFrame to use in case you don't want to use the object data.
-
-        Returns
-        -------
-        ohlc_df: pd.DataFrame
-            Contains all the DataFrame data plus the DeTrend.
-        '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
-        
-        df = self.movingAverage(n=n, method=method, datatype=datatype, 
-                                dataname='DeTrendMA', new_df=df)
-        
-        df[dataname] = df[datatype].shift(int(n/2+1)) - df['DeTrendMA']
-        
-        if not isinstance(new_df, pd.DataFrame):
-            self.ohlc_df[dataname] = df[dataname]
-            return self.ohlc_df
-        
-        else:
-            df = df.drop(['DeTrendMA'],axis=1)
-            return df
-
-    def directionalProbOscillator(self, n:int=10, dataname:str='DProb', 
-                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
-
-        '''
-        Calculates the Directional Probability Oscillator indicator.
-
-        Parameters
-        ----------
-        n: int
-            Length of the moving average.
-        dataname: str
-            Name of the resulting column in the DataFrame with the data.
-            Default is DProb.
-        new_df: pd.DataFrame
-            DataFrame to use in case you don't want to use the object data.
-
-        Returns
-        -------
-        ohlc_df: pd.DataFrame
-            Contains all the DataFrame data plus the DProb.
-        '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-            
-        df[dataname] = np.where(df['Close'] > df['Open'], 1, 0)
-        df[dataname] = df[dataname].rolling(n).sum()
-        df[dataname] = df[dataname]/n 
-        
-        if not isinstance(new_df, pd.DataFrame):
-            self.ohlc_df[dataname] = df[dataname]
-            return self.ohlc_df
-        
-        else:
-            return df
-
-    def sar(self, af:float=0.02, amax:float=0.2, dataname:str='PSAR', 
-            new_df:pd.DataFrame=None) -> pd.DataFrame:
-
-        '''
-        Calculates the SAR indicator.
-
-        Parameters
-        ----------
-        af: float
-            Acceleration factor.
-        amax float
-            Maximum acceleration factor.
-        dataname: str
-            Name of the resulting column in the DataFrame with the data.
-            Default is DProb.
-        new_df: pd.DataFrame
-            DataFrame to use in case you don't want to use the object data.
-
-        Returns
-        -------
-        ohlc_df: pd.DataFrame
-            Contains all the DataFrame data plus the PSAR.
-        '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
-        # Starting values
-        high = df['High']
-        low = df['Low']
-        sig0, xpt0, af0 = True, high[0], af
-        sar = [low[0] - (high - low).std()]
-        for i in range(1, len(df)):
-            sig1, xpt1, af1 = sig0, xpt0, af0
-            lmin = min(low[i - 1], low[i])
-            lmax = max(high[i - 1], high[i])
-            if sig1:
-                sig0 = low[i] > sar[-1]
-                xpt0 = max(lmax, xpt1)
-            else:
-                sig0 = high[i] >= sar[-1]
-                xpt0 = min(lmin, xpt1)
-            if sig0 == sig1:
-                sari = sar[-1] + (xpt1 - sar[-1])*af1
-                af0 = min(amax, af1 + af)
-                if sig0:
-                    af0 = af0 if xpt0 > xpt1 else af1
-                    sari = min(sari, lmin)
-                else:
-                    af0 = af0 if xpt0 < xpt1 else af1
-                    sari = max(sari, lmax)
-            else:
-                af0 = af
-                sari = xpt0
-            sar.append(sari)      
-
-        df[dataname] = sar  
-        
-        if not isinstance(new_df, pd.DataFrame):
-            self.ohlc_df[dataname] = sar
-            return self.ohlc_df
-        
-        else:
-            return df
-
-    def relativeVigorOscillator(self, n:int=10, method:str='s', dataname:str='RVI', 
-                                  new_df:pd.DataFrame=None) -> pd.DataFrame:
-
-        '''
-        Calculates the Relative Vigor Index Oscillator indicator.
-
-        Parameters
-        ----------
-        n: int
-            Length of the indicator.
-        method: str
-            Calculation method used for the moving averages. It can be:
-            - Simple: s (default)
-            - Exponential: e
-            - Weighted: w
-            - Volume Weighted: v
-            - VWAP: vwap
-            - Fibonacci: f
-        datatype: str
-            Column name to which apply the indicator. Default is Close.
-        dataname: str
-            Name of the resulting columns in the DataFrame with the data.
-            Default is RVI.
-        new_df: pd.DataFrame
-            DataFrame to use in case you don't want to use the object data.
-
-        Returns
-        -------
-        ohlc_df: pd.DataFrame
-            Contains all the DataFrame data plus the RVI and the RVISig.
-        '''
-        
-        if not isinstance(new_df, pd.DataFrame):
-            df = self.ohlc_df.copy()
-        else:
-            df = new_df.copy()
-
-        df[dataname+'Num'] = (df['Close']-df['Open']) + (2*(df['Close'] - df['Open'].shift(1))) \
-                            + (2*(df['Close'] - df['Open'].shift(2))) + (df['Close'] - df['Open'].shift(3))
-        df = self.movingAverage(n=n, method=method, datatype=dataname+'Num', 
-                                dataname=dataname+'Num', new_df=df)
-        df[dataname+'Den'] = (df['High']-df['Low']) + (2*(df['High'] - df['Low'].shift(1))) \
-                            + (2*(df['High'] - df['Low'].shift(2))) + (df['High'] - df['Low'].shift(3))
-        df = self.movingAverage(n=n, method=method, datatype=dataname+'Den', 
-                                dataname=dataname+'Den', new_df=df)
-
-        df[dataname] = df[dataname+'Num'] / df[dataname+'Den']
-        df[dataname+'Sig'] = ((df[dataname]) + (2*(df[dataname].shift(1))) \
-                            + (2*(df[dataname].shift(2))) + (df[dataname].shift(3))) / 6
-
-        if not isinstance(new_df, pd.DataFrame):
-            self.ohlc_df[dataname] = df[dataname]
-            self.ohlc_df[dataname+'Sig'] = df[dataname+'Sig']
-            return self.ohlc_df
-        
-        else:
-            df.drop(columns=[dataname+'Num', dataname+'Den'], inplace=True)
-            return df
 
 
 
-
-
-class Statistics:
+class Statistics(OHLC):
 
     '''
     Class used to calculate statistical indicators.
     '''
 
-    def __init__(self, df:pd.DataFrame):
+    def __init__(self, ohlc:pd.DataFrame=None, errors:bool=True, 
+                 verbose:bool=True) -> None:
 
         '''
-        Function initiate the Statistics class.
+        Function initiate the Indicators class.
 
         Parameters
         ----------
-        df: pd.DataFrame
+        ohlc: pd.DataFrame
             DataFrame with OHCL data for an asset. The open columns must 
             be named 'Open', the close column 'Close', the high column
             'High' and the low column 'Low
-        '''
         
-        self.ohlc_df = df
+        '''
+
+        self.errors = errors
+        self.verbose = verbose
+        self._newDf(ohlc, needed_cols=['Open', 'High', 'Low', 'Close'], 
+                    overwrite=True)
 
     def mean(self, n:int=None, datatype:str='Close', 
              dataname:str='Mean') -> pd.DataFrame:
@@ -3170,27 +3113,30 @@ class Statistics:
 
 
 
-class CandlePattern:
+class CandlePattern(OHLC):
 
     '''
     Clase con las funciones de reconocimiento de patrones
     '''
 
-    def __init__(self,data:pd.DataFrame,volume:bool=False):
+    def __init__(self, ohlc:pd.DataFrame=None, errors:bool=True, 
+                 verbose:bool=True, volume:bool=False) -> None:
 
         '''
-        Function initiate the CandlePatterns class.
+        Function initiate the Indicators class.
 
         Parameters
         ----------
-        df: pd.DataFrame
+        ohlc: pd.DataFrame
             DataFrame with OHCL data for an asset. The open columns must 
             be named 'Open', the close column 'Close', the high column
             'High' and the low column 'Low
+        
         '''
 
-
-        self.ohlc_df = data
+        self.errors = errors
+        self.verbose = verbose
+        self._newDf(ohlc, overwrite=True)
         self.volume = volume
 
     def isDoji(self, dataname:str='Doji', offset:int=1) -> pd.DataFrame:
@@ -3447,71 +3393,19 @@ class CandlePattern:
 if __name__ == '__main__':
 
     import matplotlib.pyplot as plt
-
-    ohlcv = pd.read_csv('OHLCdata.csv')
-    indicator = Indicators(ohlcv)
-
-    
-    #ohlcv = DataHandling(temp).heiken_ashi()
-    #data = indicator.ma(n=13,mode='f',datatype='Close',dataname=None)
-    data = indicator.donchian(n=20,dataname='donchian5fast')
-    data = indicator.donchian(n=100,dataname='donchian5slow')
-    data = indicator.donchian(n=60,dataname='donchian15fast')
-    data = indicator.donchian(n=180,dataname='donchian15slow')
-
-    graf = True
-    if graf:
-        ## GRAFICACION
         
-        fig,(ax1,ax2) = plt.subplots(2, 1, figsize=(9, 6),sharex=True)
-        # Preparamos los datos para graficar velas
-        indice = ohlcv.index
-        ohlcv = ohlcv.reset_index(drop=True).reset_index()
-        ohlcv['Up'] = ohlcv['Close'] > ohlcv['Open']
-        ohlcv['Bottom'] = np.where(ohlcv['Up'], ohlcv['Open'], ohlcv['Close'])
-        ohlcv['Bar'] = ohlcv['High'] - ohlcv['Low']
-        ohlcv['Body'] = abs(ohlcv['Close'] - ohlcv['Open'])
-        ohlcv['Color'] = np.where(ohlcv['Up'], 'g', 'r')
-        ax1.yaxis.tick_right()
-        ax1.bar(indice, bottom=ohlcv['Low'], height=ohlcv['Bar'], width=0.25, color='#000000')
-        ax1.bar(indice, bottom=ohlcv['Bottom'], height=ohlcv['Body'], width=0.5, color=ohlcv['Color'])
+    if False:
+        from degiro import DeGiro
+        degiro = DeGiro('OneMade','Onemade3680')
+        products = degiro.getProducts(exchange_id=663,country=846) # Nasdaq exchange
+        asset = products.iloc[213] # AAPL -> vwdid = 350015372
+        raw = degiro.getPriceData(asset['vwdId'], 'PT1H', 'P5Y', tz='UTC')
+    else:
+        import yfinance as yf
+        raw = yf.Ticker('SPY').history(period='2y',interval='1h')
 
-        s = len(indice)
-        # Donchian 1
-        ind1 = data['donchian5fast_max'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian5fast_max'].to_list()
-        ax1.plot(indice,ind1,color='blue',linewidth=0.25)
-        ind1 = data['donchian5fast_min'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian5fast_min'].to_list()
-        ax1.plot(indice,ind1,color='blue',linewidth=0.25)
-        # Donchian 2
-        ind1 = data['donchian5slow_max'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian5slow_max'].to_list()
-        ax1.plot(indice,ind1,color='green',linewidth=0.25)
-        ind1 = data['donchian5slow_min'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian5slow_min'].to_list()
-        ax1.plot(indice,ind1,color='green',linewidth=0.25)
-        # Donchian 3
-        ind1 = data['donchian15fast_max'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian15fast_max'].to_list()
-        ax1.plot(indice,ind1,color='red',linewidth=0.25)
-        ind1 = data['donchian15fast_min'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian15fast_min'].to_list()
-        ax1.plot(indice,ind1,color='red',linewidth=0.25)
-        # Donchian 4
-        ind1 = data['donchian15slow_max'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian15slow_max'].to_list()
-        ax1.plot(indice,ind1,color='orange',linewidth=0.25)
-        ind1 = data['donchian15slow_min'].to_list()
-        if len(ind1) < s:
-            ind1 = [np.nan]*(s-len(ind1))+data['donchian15slow_min'].to_list()
-        ax1.plot(indice,ind1,color='orange',linewidth=0.25)
+    raw['SLdist'] = Indicators(raw).atr(n=20, method='s', dataname='ATR')['ATR']
+
+    indicator = Indicators(raw)
     
-        plt.show()
+    data = indicator.rsi()

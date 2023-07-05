@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from indicators import Indicators
+from indicators import OHLC, Indicators
 
     
 # def checkStrategyConfig(self, strat_name):
@@ -13,46 +13,19 @@ from indicators import Indicators
 #         raise ValueError(f'Strategy "{strat_name}" not between the tradeable ' + \
 #                             'list: '+','.join(list(strategies.keys())))
 
-class SignalsTemplate:
+class SignalsTemplate(OHLC):
 
     df = None
+    needed_cols = ['Open', 'High', 'Low', 'Close', 'Spread', 'SLdist']
 
     def __init__(self,df:pd.DataFrame=None, backtest:bool=False, errors:bool=True, 
                  verbose:bool=True) -> None:
 
         self.errors = errors
         self.verbose = verbose
-        self._newDf(df)
+        self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         self.indicators = Indicators(df)
         self.shift = 1 if backtest else 0
-
-    def _newDf(self, df:pd.DataFrame) -> None:
-        
-        changed = False
-        if isinstance(df, pd.DataFrame):
-            self.df = df
-            changed = True
-        
-        if self.verbose and changed:
-            if changed:
-                if 'Spread' not in self.df:
-                    if self.errors:
-                        raise ValueError('"Spread" is not between the dataframe columns.')
-                    else:
-                        self.df['Spread'] = [0]*len(self.df)
-                        print('"Spread" is not between the dataframe columns.')
-
-                if 'SLdist' not in self.df:
-                    if self.errors:
-                        raise ValueError('"SLdist" is not between the dataframe columns.')
-                    else:
-                        self.df['SLdist'] = [0]*len(self.df)
-                        print('"SLdist" is not between the dataframe columns.')
-            elif not isinstance(df, pd.DataFrame):
-                if self.errors:
-                    raise ValueError('There is no DataFrame with data to use.')
-                else:
-                    print('There is no DataFrame with data to use.')
 
     def getIndicators(self):
 
@@ -70,6 +43,14 @@ class SignalsTemplate:
             raise ValueError(f'No arguments for the indicator where given, check \
                             OscillatorSignals.indicators.{ind_name}() to get the \
                             needed arguments. At least the dataname should be given')
+        
+    def _renameEntry(self, strat:str) -> str:
+
+        return f'{strat}Entry'
+    
+    def _renameExit(self, strat:str) -> str:
+
+        return f'{strat}Exit'
 
 class OscillatorSignals(SignalsTemplate):
     
@@ -103,8 +84,8 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Agr'
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
         
@@ -113,15 +94,15 @@ class OscillatorSignals(SignalsTemplate):
         long_condition = (df[ind] < lower) & (df[ind].shift(1) > lower)
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
-
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -156,8 +137,8 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Cons'
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -167,14 +148,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -212,8 +193,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Cross'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
         df = self.indicators.movingAverage(n=n, method='s', 
@@ -229,14 +211,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -275,8 +257,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Div'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -341,14 +324,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -385,8 +368,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'ExtDur'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -407,14 +391,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -450,8 +434,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Ext'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -464,14 +449,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -507,8 +492,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'M'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -529,14 +515,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -573,8 +559,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Rev'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -589,14 +576,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -634,8 +621,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'Pull'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -688,14 +676,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -731,8 +719,9 @@ class OscillatorSignals(SignalsTemplate):
         
         self._kwargsError(kwargs, ind_name)
         strat_name = ind_name + 'V'
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = getattr(self.indicators, ind_name)(**kwargs)
 
@@ -747,14 +736,14 @@ class OscillatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -789,8 +778,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, 
                                             datatype='Close', dataname='BB')
@@ -802,14 +792,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -842,8 +832,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, 
                                             datatype='Close', dataname='BB')
@@ -857,14 +848,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -905,8 +896,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.pctBollinger(n=n, desvi=dev, datatype='Close', 
                                           dataname='PctBB', new_df=df)
@@ -971,14 +963,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1013,8 +1005,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1024,14 +1017,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1066,8 +1059,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1077,14 +1071,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1120,8 +1114,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.movingAverage(n=m, method='s', 
                                 datatype='Close', dataname='MA')
@@ -1137,14 +1132,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1183,8 +1178,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1249,14 +1245,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1293,8 +1289,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1314,14 +1311,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1357,8 +1354,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1370,14 +1368,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1413,8 +1411,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1434,14 +1433,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1478,8 +1477,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1493,14 +1493,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1538,8 +1538,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1591,14 +1592,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1634,8 +1635,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                  dataname='RSI')
@@ -1649,14 +1651,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1691,8 +1693,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, method='s', 
                                                   dataname='SO', new_df=df)
@@ -1702,14 +1705,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1744,8 +1747,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df = self.indicators.stochasticOscillator(n=n, dataname='SO')
 
@@ -1754,14 +1758,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1796,8 +1800,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df = self.indicators.stochasticOscillator(n=n, m=m, p=3, dataname='SO')
 
@@ -1810,14 +1815,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1856,8 +1861,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -1921,14 +1927,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -1965,8 +1971,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -1985,14 +1992,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2028,8 +2035,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -2040,14 +2048,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2083,8 +2091,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -2103,14 +2112,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2148,9 +2157,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-    
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -2201,14 +2210,14 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2245,8 +2254,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.chandeMomentumOscillator(n=n, dataname='CMO', 
@@ -2259,14 +2269,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2301,8 +2311,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.demarker(n=n, dataname='DeMark', new_df=df)
@@ -2314,14 +2325,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2356,8 +2367,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.detrendedOscillator(n=n, method='s', datatype='Close', 
@@ -2370,14 +2382,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2413,8 +2425,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.directionalProbOscillator(n=n, dataname='DProbOsc', 
@@ -2427,16 +2440,15 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
-
         self.df = df
 
         return self.df
@@ -2470,8 +2482,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.simpleFisher(n=n, dataname='simpleFisher', 
@@ -2484,14 +2497,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2526,8 +2539,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.momentumOscillator(n=n, dataname='MO', 
@@ -2540,14 +2554,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2582,8 +2596,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.sar(af=0.02, amax=0.2, dataname='PSAR', new_df=df)  
@@ -2596,14 +2611,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2634,8 +2649,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.relativeVigorOscillator(n=n, method='s', dataname='RVI', new_df=df)  
@@ -2649,16 +2665,16 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
-
+            
         self.df = df
 
         return self.df
@@ -2695,8 +2711,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
 
         df = self.indicators.rsiAtr(n=n, m=m, o=o, datatype='Close', dataname='RSIATR', new_df=df)  
@@ -2708,14 +2725,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2754,8 +2771,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.rsi(n=n, method='e',datatype='Close',dataname='RSI',new_df=df)
         df = self.indicators.stochasticOscillator(n=n, m=m, p=p, datatype='RSI', dataname='SO', new_df=df)  
@@ -2767,14 +2785,14 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2816,8 +2834,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.movingAverage(n=n, method='s',datatype='High',dataname='UPMA',new_df=df)
         df = self.indicators.movingAverage(n=n, method='s',datatype='Low',dataname='DNMA',new_df=df)
@@ -2831,14 +2850,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2877,8 +2896,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.movingAverage(n=n, method='f',datatype='High',dataname='UPMA',new_df=df)
         df = self.indicators.movingAverage(n=n, method='f',datatype='Low',dataname='DNMA',new_df=df)
@@ -2892,14 +2912,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -2937,8 +2957,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         counter = -1
         long = []
@@ -2995,14 +3016,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3036,8 +3057,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df['Range'] = df['High'].rolling(n).max() - df['Low'].rolling(n).min()
         df['Support'] = df['Low'].rolling(n).min() + df['Close']*lower
@@ -3051,14 +3073,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3090,8 +3112,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, datatype='Close', 
                                             dataname='BB', new_df=df)
@@ -3105,14 +3128,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3150,8 +3173,9 @@ class KSignals(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
         
         df = self.indicators.volatilityBands(n=n, multiplier=mult, datatype='Close', 
                                             dataname='VB', new_df=df)
@@ -3162,14 +3186,14 @@ class KSignals(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3210,8 +3234,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.macd(a=a, b=b, c=c, method='e', datatype='Close', 
                                   dataname='MACD', new_df=df)
@@ -3280,14 +3305,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3323,8 +3348,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df['Diff'] = df['Close'] - df['Close'].shift(n)
         upt = [0]
@@ -3350,14 +3376,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3394,9 +3420,10 @@ class ContrarianStrategies(SignalsTemplate):
         df: pd.DataFrame
             DataFrame containing all the data.
         '''
+
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.simpleFisher(n=n, m=3, p=3, method='s', dataname='SFisher',
                                           new_df=df)
@@ -3408,21 +3435,20 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
 
         return self.df
     
-    #TODO from here ->
     def vamaStochStrat(self,df:pd.DataFrame=None, n:int=20, m:int=100, p:int=30, 
                        lower:float=20, upper:float=80, strat_name:str='VAMAStrat', 
                        exit_signal:bool=False) -> pd.DataFrame: 
@@ -3457,8 +3483,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.vamaBands(n=n, m=m, p=p, desvi=3, datatype='Close', dataname='VB',
                                         new_df=df)
@@ -3474,14 +3501,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3521,8 +3548,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.rsi(n=n, method='e', datatype='Close', dataname='RSIF', 
                                  new_df=df)
@@ -3589,14 +3617,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3627,8 +3655,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.keltnerChannel(n=n, mamethod='s', atrn=n, atrmethod='s', multiplier=2,
                                         datatype='Close', dataname='KC', new_df=df)
@@ -3640,14 +3669,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3684,8 +3713,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.slope(n=n, dataname='Slope', pct=False, new_df=df)
         df = self.indicators.rsi(n=m, method='e', datatype='Slope', dataname='RSI', 
@@ -3696,14 +3726,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3745,8 +3775,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.macd(a=a, b=b, c=c, method='e', datatype='Close', 
                                   dataname='MACD', new_df=df)
@@ -3758,14 +3789,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3802,8 +3833,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.rsi(n=n, method='e', datatype='Close', dataname='RSI', 
                                  new_df=df)
@@ -3866,14 +3898,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3906,8 +3938,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                         dataname='FMA', new_df=df)
@@ -3917,21 +3950,21 @@ class ContrarianStrategies(SignalsTemplate):
         df['MANDI'] = (df['NI'] - df['NI'].rolling(n).min()) / \
                     (df['NI'].rolling(n).max() - df['NI'].rolling(n).min())
 
-        short_condition = (df['MANDI'] == 100) & (df['MANDI'].shift(1) < 100) & \
+        short_condition = (df['MANDI'] == 1) & (df['MANDI'].shift(1) < 1) & \
                         (df['Close'] < df['SMA']) & (df['Close'] > df['FMA'])
-        long_condition = (df['MANDI'] == 100) & (df['MANDI'].shift(1) < 100) & \
+        long_condition = (df['MANDI'] == 1) & (df['MANDI'].shift(1) < 1) & \
                         (df['Close'] > df['SMA']) & (df['Close'] < df['FMA'])
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -3971,8 +4004,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                 dataname='RSI', new_df=df)
@@ -3986,14 +4020,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4030,8 +4064,9 @@ class ContrarianStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
                                 dataname='RSI', new_df=df)
@@ -4045,14 +4080,14 @@ class ContrarianStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4086,8 +4121,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                         dataname='FMA', new_df=df)
@@ -4099,14 +4135,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4137,8 +4173,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='High', 
                                         dataname='HMA', new_df=df)
@@ -4152,14 +4189,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4195,8 +4232,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                         dataname='MA', new_df=df)
@@ -4210,14 +4248,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4253,8 +4291,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                            dataname='MA', new_df=df)
@@ -4266,14 +4305,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4312,8 +4351,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.macd(a=a, b=b, c=c, method='s', datatype='Close', 
                                         dataname='MACD', new_df=df)
@@ -4323,14 +4363,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4362,8 +4402,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.superTrend(n=n, method='s', mult=m, datatype='Close', 
                                            dataname='ST', new_df=df)
@@ -4373,14 +4414,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4410,9 +4451,10 @@ class TrendStrategies(SignalsTemplate):
         df: pd.DataFrame
             DataFrame containing all the data.
         '''
+
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                            dataname='MA', new_df=df)
@@ -4425,14 +4467,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4470,8 +4512,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                            dataname='MA', new_df=df)
@@ -4485,14 +4528,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4529,8 +4572,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
 
@@ -4595,14 +4639,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4638,8 +4682,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                         dataname='MA', new_df=df)
@@ -4657,14 +4702,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4696,8 +4741,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.atr(n=20, method='s', dataname='ATR', new_df=df)
         df = self.indicators.movingAverage(n=n, m=m, method='vama', datatype='Close', 
@@ -4746,14 +4792,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4793,8 +4839,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df = self.indicators.superTrend(n=m, method='s', mult=mult, datatype='Close', 
                                            dataname='ST', new_df=df)
@@ -4808,14 +4855,14 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -4857,8 +4904,9 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        self._newDf(df)
-        df = self.df.copy()
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df['Std'] = df['Close'].rolling(n).std(ddof=0)
         df = self.indicators.rsi(n=n, method='e', datatype='Std', 
@@ -4877,21 +4925,20 @@ class TrendStrategies(SignalsTemplate):
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
 
         return self.df
     
-
 class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, ContrarianStrategies, TrendStrategies):
     
     def turtlesBreakout(self, df:pd.DataFrame=None, 
@@ -4920,8 +4967,8 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         '''
 
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.donchian(n, high_data='High', low_data='Low', dataname='DC', new_df=df)
         
@@ -4930,7 +4977,7 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
         
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
@@ -4966,8 +5013,8 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         '''
         
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
 
         df.loc[:,'DCUP'] = df['High'].rolling(dc_n).max()
         df.loc[:,'DCDN'] = df['Low'].rolling(dc_n).min()
@@ -4984,14 +5031,14 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) < df['KCH2']) & \
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) < df['KCH2']) & \
                                   (df['Close'].shift(2) > df['KCH2'].shift(2)), 1,
                         np.where((df['Close'].shift(1) > df['KCL2']) & \
                                  (df['Close'].shift(2) < df['KCL2'].shift(2)), -1, 0))
@@ -5029,8 +5076,8 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         '''
         
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df.loc[:,'EMA1'] = df['Close'].ewm(span=ma_1, adjust=False).mean()#.rolling(5).mean()
         df.loc[:,'EMA2'] = df['Close'].ewm(span=ma_2, adjust=False).mean()#.rolling(5).mean()
@@ -5052,14 +5099,14 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) < df['KCH2']) & (df['Close'].shift(2) > df['KCH2'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) < df['KCH2']) & (df['Close'].shift(2) > df['KCH2'].shift(2)), 1,
                         np.where((df['Close'].shift(1) > df['KCL2']) & (df['Close'].shift(2) < df['KCL2'].shift(2)), -1, 0))
 
         self.df = df
@@ -5091,9 +5138,8 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
             DataFrame containing all the data.
         '''
         
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
-        self._newDf(df)
-        df = self.df.copy()
         
         df = self.indicators.kama(n=n_1, scf=2, scs=30, datatype='Close', dataname='KAMA', new_df=df)
         df = self.indicators.kama(n=n_2, scf=2, scs=30, datatype='Close', dataname='KAMA2', new_df=df)
@@ -5108,14 +5154,14 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
                         (df['KAMAslope'] < df['KAMA2slope'])
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
@@ -5148,8 +5194,8 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         '''
         
         
-        self._newDf(df)
-        df = self.df.copy()
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
             
         df = self.indicators.atr(n=n, method='s', dataname='ATR', new_df=df)
         df['ATRpct'] = df['ATR'].rolling(n).quantile(quantile)
@@ -5161,23 +5207,81 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
 
-        df[strat_name] = np.where(exe_condition.shift(self.shift) & \
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
                                   long_condition.shift(self.shift), 1,
                         np.where(exe_condition.shift(self.shift) & \
                                 short_condition.shift(self.shift), -1, 
                         0))
 
         if exit_signal:
-            df['Exit'] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
         self.df = df
 
         return self.df
     
+def plotSignals(df:pd.DataFrame, indicators:list=[]) -> None:
 
+    rows = 1
+    row_heights = [5]
+    oscillators = []
+    for indicator in indicators:
+        if 'entry' in indicator.lower() or 'exit' in indicator.lower():
+            continue
+        if df[indicator].max() < df['Close'].max()/2 or df[indicator].max() > df['Close'].max()*2:
+            rows += 1
+            row_heights.append(2)
+            oscillators.append(indicator)
+
+    if 'volume' in [c.lower() for c in df.columns]:
+        fig = make_subplots(rows=rows+1, cols=1, shared_xaxes=True, vertical_spacing=0, row_heights=row_heights+[2])
+        fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='Volume'), row=2, col=1)
+        volume = True
+    else:
+        fig = make_subplots(rows=rows, cols=1, shared_xaxes=True, vertical_spacing=0, row_heights=row_heights)
+
+    # Candlesticks
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], 
+                        low=df['Low'], close=df['Close'], name='Price'), row=1, col=1)
+
+    # Entry signals
+    strat_name = [c for c in df.columns if 'entry' in c.lower()]
+    for s in strat_name:
+        fig.add_trace(go.Scatter(x=df.index[df[s] > 0], y=df['Open'].shift(-1)[df[s] > 0], name=f'{s}Long', 
+                                    marker_color='Blue', marker_symbol='triangle-right', marker_size=15, mode='markers'), 
+                        row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index[df[s] < 0], y=df['Open'].shift(-1)[df[s] < 0], name=f'{s}Short', 
+                                    marker_color='Orange', marker_symbol='triangle-right', marker_size=15, mode='markers'), 
+                        row=1, col=1)
+
+    # Indicators
+    row = 3 if volume else 2
+    for indicator in indicators:
+        if 'entry' in indicator.lower() or 'exit' in indicator.lower():
+            continue
+        if indicator in oscillators:
+            fig.add_trace(go.Scatter(x=df.index, y=df[indicator], name=indicator), row=row, col=1)
+            row += 1
+        else:
+            fig.add_trace(go.Scatter(x=df.index, y=df[indicator], name=indicator), row=1, col=1)
+
+    # Formating
+    fig.update_xaxes(rangeslider_visible=False)
+    fig.update_layout(
+        title_text=f'Price',
+        autosize=False,
+        width=900,
+        height=600,
+        margin=dict(l=20, r=20, t=40, b=20),
+    )
+
+    fig.show()
 
 if __name__ == '__main__':
+
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
     import os
 
@@ -5196,40 +5300,8 @@ if __name__ == '__main__':
 
     signals = Signals(raw, backtest=True, errors=False)
 
-    data = signals.bollingerDivergence(df=raw)
-    data = data[data[data.columns[-1]] != 0]
-    print(len(data))
-    data.head(5)
-
-    data = signals.trendExplosion()
-
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0, row_heights=[5,2])
-
-    fig.add_trace(go.Bar(x=data.index, y=data['Volume'], name='Volume'), row=2, col=1)
-
-    # Candlesticks
-    fig.add_trace(go.Candlestick(x=data.index, open=data['Open'], high=data['High'], 
-                        low=data['Low'], close=data['Close'], name='Price'))
-    
-    strat_name = [c for c in data.columns if 'Signal' in c]
-    for s in strat_name:
-        fig.add_trace(go.Scatter(x=data.index[data[s] > 0], y=data['Open'].shift(-1)[data[s] > 0], name='Long', 
-                                 marker_color='Blue', marker_symbol='triangle-right', marker_size=15, mode='markers'), 
-                      row=1, col=1)
-        fig.add_trace(go.Scatter(x=data.index[data[s] < 0], y=data['Open'].shift(-1)[data[s] < 0], name='Short', 
-                                 marker_color='Orange', marker_symbol='triangle-right', marker_size=15, mode='markers'), 
-                      row=1, col=1)
-
-    fig.update_xaxes(rangeslider_visible=False)
-    fig.update_layout(
-        title_text=f'Price',
-        autosize=False,
-        width=900,
-        height=600,
-        margin=dict(l=20, r=20, t=40, b=20),
-    )
-
-    fig.show()
+    data = signals.catapultTrend(df=raw)
+    sign = data[data[data.columns[-1]] != 0]
+    prev_indicators = raw.columns
+    new_indicators = [c for c in data.columns if c not in prev_indicators]
+    plotSignals(data, new_indicators)
