@@ -4153,8 +4153,8 @@ class TrendStrategies(SignalsTemplate):
                exit_signal:bool=False) -> pd.DataFrame: 
         
         '''
-        Buy when si between the moving averages of the Highs and the Lows after being above 
-        the Highs moving average the period before and 10 times before.
+        Buy when price is between the moving averages of the Highs and the Lows after 
+        being above the Highs moving average the period before and 10 times before.
 
         Parameters
         ----------
@@ -5216,6 +5216,68 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         if exit_signal:
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
+
+        self.df = df
+
+        return self.df
+    
+    def indexPullback(self,df:pd.DataFrame=None, n:int=200, u:int=7, d:int=5, 
+                      strat_name:str='IdxPull', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when si between the moving averages of the Highs and the Lows after being above 
+        the Highs moving average the period before and 10 times before.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        u: int
+            Number of lows above current close.
+        d: int
+            Number of highs below current close.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+        df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
+                                            dataname='SMA', new_df=df)
+        
+        short_condition = (df['High'].rolling(d).max() < df['Close']) & \
+                        (df['Close'] > df['SMA'])
+        long_condition = (df['Low'].rolling(d).min() > df['Close']) & \
+                        (df['Close'] > df['SMA'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df = self.indicators.movingAverage(n=u, method='s', datatype='Close', 
+                                                dataname='UMA', new_df=df)
+            df = self.indicators.movingAverage(n=d, method='s', datatype='Close', 
+                                                dataname='DMA', new_df=df)
+            # Time limit should be 7 days
+            long_condition = (df['Close'] > df['UMA'])
+            short_condition = (df['Close'] < df['DMA'])
+            df[self._renameExit(strat_name)] = np.where(long_condition, 1,
+                        np.where(short_condition, -1, 0))
 
         self.df = df
 
