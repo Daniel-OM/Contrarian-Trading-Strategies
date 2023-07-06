@@ -300,6 +300,7 @@ class Trade:
 
         self.datetime = candle['DateTime']
         self.entrytime =  candle['DateTime']
+        self.exittime = candle['DateTime']
         self.ticker = candle['Ticker']
         self.strategy = strategy
         self.order = asset.order
@@ -314,10 +315,11 @@ class Trade:
         self.risk = asset.risk
         self.balance = balance
         self.size = size if balance > 0 else 0.0
+        self.result = self.returns * self.size - self.calculateCommission()
         self.sldist = abs(entry - slprice)
         self.high = candle['High']
         self.low = candle['Low']
-        self.candles = [candle]
+        self.candles = []
         self.onecandle = False
         self.asset = asset
     
@@ -325,6 +327,11 @@ class Trade:
 
         '''
         Calculates the commission applied to the trade.
+
+        Returns
+        -------
+        commission: float
+            Commission charged for the trade.
         '''
 
         commission = self.commission.value * self.size if self.commission.type == 'pershare' \
@@ -336,6 +343,8 @@ class Trade:
             commission = self.commission.min
 
         self.commission = commission
+
+        return self.commission
 
     def to_dict(self):
 
@@ -351,6 +360,7 @@ class Trade:
         return {
             'OrderTime': self.datetime,
             'EntryTime': self.entrytime,
+            'ExitTime': self.exittime,
             'Ticker': self.ticker,
             'Strategy': self.strategy.to_dict(),
             'Order': self.order,
@@ -360,8 +370,9 @@ class Trade:
             'SL': self.sl,
             'TP': self.tp,
             'Return': self.returns,
+            'Result': self.calculateResult(),
             'Spread': self.spread,
-            'Comsission': self.calculateCommission(),
+            'Commission': self.calculateCommission(),
             'CommissionStruc': self.commission.to_dict(),
             'Risk': self.risk,
             'Balance': self.balance,
@@ -433,11 +444,29 @@ class BackTest(OHLC):
         return df
     
     def getEntries(self, candle):
+
+        '''
+        Gets the column names of the different Entry strategies.
+
+        Parameters
+        ----------
+        candle: 
+            Contains the current iteration candle.
+        '''
         
         self.entries = [c.replace('Entry','').replace('entry','') for c in candle.columns \
                         if 'entry' in c.lower()]
     
     def getExits(self, candle):
+
+        '''
+        Gets the column names of the different Exit strategies.
+
+        Parameters
+        ----------
+        candle: 
+            Contains the current iteration candle.
+        '''
         
         self.exits = [c.replace('Exit','').replace('exit','') for c in candle.columns \
                         if 'exit' in c.lower()]
@@ -643,7 +672,7 @@ class BackTest(OHLC):
                                 # Sell order entry price
                                 trade_order = asset.order_type
                                 if asset.order_type == 'market':
-                                    entry = candle['Open'] - candle['Spread']
+                                    entry = candle['Open']# - candle['Spread']
                                 elif asset.order_type == 'stop':
                                     entry = prev_candle[candle['Ticker']]['Low']
                                 elif asset.order_type == 'limit':
@@ -716,26 +745,9 @@ class BackTest(OHLC):
                                         #print(f"Sell Stop Cancelled by TP: \n Open - {candle['Open']} Low - {candle['Low']} \
                                         #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
                                         delete.append(order)
-# --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Aqui te has quedadoooo
+                                        
                             # LIMIT orders
                             elif order.order == 'limit':
-
-                                if order.signal == 'short':
-
-                                    if order.entry < candle['High']:
-                                        order.entrytime = candle['DateTime']
-                                        order.balance = balance[-1]
-                                        open_trades.append(order)
-                                        delete.append(order)
-                                        
-                                    elif candle['High'] > order.sl:
-                                        #print(f"Sell Limit Cancelled by SL: \n Open - {candle['Open']} High - {candle['High']} \
-                                        #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
-                                        delete.append(order)
-                                    elif candle['Low'] < order.tp:
-                                        #print(f"Sell Limit Cancelled by TP: \n Open - {candle['Open']} Low - {candle['Low']} \
-                                        #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
-                                        delete.append(order)
 
                                 if order.signal == 'long':
 
@@ -753,6 +765,23 @@ class BackTest(OHLC):
                                         #print(f"Buy Limit Cancelled by TP: \n Open - {candle['Open']} High - {candle['High']} \
                                         #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
                                         delete.append(order)
+
+                                if order.signal == 'short':
+
+                                    if order.entry < candle['High']:
+                                        order.entrytime = candle['DateTime']
+                                        order.balance = balance[-1]
+                                        open_trades.append(order)
+                                        delete.append(order)
+                                        
+                                    elif candle['High'] > order.sl:
+                                        #print(f"Sell Limit Cancelled by SL: \n Open - {candle['Open']} High - {candle['High']} \
+                                        #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
+                                        delete.append(order)
+                                    elif candle['Low'] < order.tp:
+                                        #print(f"Sell Limit Cancelled by TP: \n Open - {candle['Open']} Low - {candle['Low']} \
+                                        #        \n SL - {order['SL']} Entry - {order['Entry']}  TP - {order['TP']}")
+                                        delete.append(order)
                     
                     # Delete from open orders if already executed
                     for d in delete:
@@ -761,72 +790,72 @@ class BackTest(OHLC):
                 # Store trade evolution
                 for trade in open_trades:
 
-                    if trade['Ticker'] == candle['Ticker']:
-                        trade['Candles'].append({'DateTime':candle['DateTime'] ,'Open':candle['Open'], 'High':candle['High'], 
+                    if trade.ticker == candle['Ticker']:
+                        trade.candles.append({'DateTime':candle['DateTime'] ,'Open':candle['Open'], 'High':candle['High'], 
                                         'Low':candle['Low'], 'Close':candle['Close'], 'Volume': candle['Volume']})
-
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Aquí te has quedadoooo
                 # Check open trades limits orders
                 if len(open_trades) > 0:
                     
                     delete = []
                     for trade in open_trades:
 
-                        if candle['Ticker'] == trade['Ticker']:
+                        if candle['Ticker'] == trade.ticker:
                             
                             exited = False
 
                             # Check SL
-                            if self.config['use_sl']:
+                            if self.config.use_sl:
 
-                                if trade['Order'] != 'stop' or not continue_onecandle or len(trade['Candles']) > 1:
+                                if trade.order != 'stop' or not self.config.continue_onecandle or len(trade.candles) > 1:
 
-                                    if trade['Signal'] == 'Sell' and candle['High'] + trade['Spread'] >= trade['SL']: # High
-                                        trade['Exit'] = trade['SL'] if candle['Open'] < trade['SL'] else candle['Open']
-                                        trade['Return'] = trade['Entry'] - trade['Exit']
+                                    if trade.signal == 'short' and candle['High'] + trade.spread >= trade.sl: # High
+                                        trade.exit = trade.sl if candle['Open'] < trade.sl else candle['Open']
+                                        trade.returns = trade.entry - trade.exit
                                         exited = True
-                                        if len(trade['Candles']) <= 1 and candle['Low'] < trade['TP'] and candle['High'] > trade['SL']:
-                                            trade['OneCandle'] = True
+                                        if len(trade.candles) <= 1 and candle['Low'] < trade.tp and candle['High'] > trade.sl:
+                                            trade.onecandle = True
 
-                                    if trade['Signal'] == 'Buy' and candle['Low'] <= trade['SL']: # Low
-                                        trade['Exit'] = trade['SL'] if candle['Open'] > trade['SL'] else candle['Open']
-                                        trade['Return'] = trade['Exit'] - trade['Entry']
+                                    if trade.signal == 'long' and candle['Low'] <= trade.sl: # Low
+                                        trade.exit = trade.sl if candle['Open'] > trade.sl else candle['Open']
+                                        trade.returns = trade.exit - trade.entry
                                         exited = True
-                                        if len(trade['Candles']) <= 1 and candle['High'] > trade['TP'] and candle['Low'] < trade['SL']:
-                                            trade['OneCandle'] = True
+                                        if len(trade.candles) <= 1 and candle['High'] > trade.tp and candle['Low'] < trade.sl:
+                                            trade.onecandle = True
                             
                             # Check TP
-                            if self.config['use_tp'] and not exited:
+                            if self.config.use_tp and not exited:
 
-                                if trade['Order'] != 'limit' or not continue_onecandle or len(trade['Candles']) > 1:
+                                if trade.order != 'limit' or not self.config.continue_onecandle or len(trade.candles) > 1:
 
-                                    if trade['Signal'] == 'Sell' and candle['Low'] + trade['Spread'] <= trade['TP']: #Low
-                                        trade['Exit'] = trade['TP'] if candle['Open'] > trade['TP'] else candle['Open']
-                                        trade['Return'] = trade['Entry'] - trade['Exit']
+                                    if trade.signal == 'short' and candle['Low'] + trade.spread <= trade.tp: #Low
+                                        trade.exit = trade.tp if candle['Open'] > trade.tp else candle['Open']
+                                        trade.returns = trade.entry - trade.exit
                                         exited = True
-                                        if len(trade['Candles']) <= 1 and candle['Low'] < trade['TP'] and candle['High'] > trade['SL']:
-                                            trade['OneCandle'] = True
+                                        if len(trade.candles) <= 1 and candle['Low'] < trade.tp and candle['High'] > trade.sl:
+                                            trade.onecandle = True
 
-                                    if trade['Signal'] == 'Buy' and candle['High'] >= trade['TP']: #High
-                                        trade['Exit'] = trade['TP'] if candle['Open'] < trade['TP'] else candle['Open']
-                                        trade['Return'] = trade['Exit'] - trade['Entry']
+                                    if trade.signal == 'long' and candle['High'] >= trade.tp: #High
+                                        trade.exit = trade.tp if candle['Open'] < trade.tp else candle['Open']
+                                        trade.returns = trade.exit - trade.entry
                                         exited = True
-                                        if len(trade['Candles']) <= 1 and candle['High'] > trade['TP'] and candle['Low'] < trade['SL']:
-                                            trade['OneCandle'] = True
+                                        if len(trade.candles) <= 1 and candle['High'] > trade.tp and candle['Low'] < trade.sl:
+                                            trade.onecandle = True
                             
                             # Check time limit
-                            if not exited and self.config['time_limit'] > 0 and len(trade['Candles']) >= self.config['time_limit']:
-                                trade['Exit'] = candle['Close']
-                                if trade['Signal'] == 'Buy':
-                                    trade['Return'] = trade['Exit'] - trade['Entry']
-                                elif trade['Signal'] == 'Sell':
-                                    trade['Return'] = trade['Entry'] - trade['Exit']
+                            if not exited and self.config['time_limit'] > 0 and len(trade.candles) >= self.config['time_limit']:
+                                trade.exit = candle['Close']
+                                if trade.signal == 'long':
+                                    trade.returns = trade.exit - trade.entry
+                                elif trade.signal == 'short':
+                                    trade.returns = trade.entry - trade.exit
                                 exited = True
 
                             if exited:
-                                trade['Result'] = trade['Return'] * trade['Size'] - trade['Comission']
-                                trade['ExitTime'] = candle['DateTime']
+                                trade.result = trade.returns * trade.size - trade.commission.value
+                                trade.exittime = candle['DateTime']
                                 closed_trades.append(trade)
-                                date_result += trade['Result']
+                                date_result += trade.result
                                 delete.append(trade)
                     
                     # Delete open trades if already exited
@@ -838,26 +867,26 @@ class BackTest(OHLC):
 
                     delete = []
                     for trade in open_trades:
-                        if trade['Ticker'] == candle['Ticker']:
+                        if trade.ticker == candle['Ticker']:
 
                             exited = False
 
                             # Exit Buy
-                            if candle['Exit'] == 1 and trade['Signal'] == 'Buy':
-                                trade['Exit'] = candle['Open']
-                                trade['Return'] = trade['Exit'] - trade['Entry']
+                            if candle['Exit'] == 1 and trade.signal == 'long':
+                                trade.exit = candle['Open']
+                                trade.returns = trade.exit - trade.entry
                                 exited = True
                             # Exit Sell
-                            elif candle['Exit'] == -1 and trade['Signal'] == 'Sell':
-                                trade['Exit'] = candle['Open'] + trade['Spread']
-                                trade['Return'] = trade['Entry'] - trade['Exit']
+                            elif candle['Exit'] == -1 and trade.signal == 'short':
+                                trade.exit = candle['Open'] + trade.spread
+                                trade.returns = trade.entry - trade.exit
                                 exited = True
                                     
                             if exited:
-                                trade['Result'] = trade['Return'] * trade['Size'] - trade['Comission']
-                                trade['ExitTime'] = candle['DateTime']
+                                trade.result = trade.returns * trade.size - trade.commission.value
+                                trade.exittime = candle['DateTime']
                                 closed_trades.append(trade)
-                                date_result += trade['Result']
+                                date_result += trade.result
                                 delete.append(trade)
                     
                     for d in delete:
@@ -868,7 +897,7 @@ class BackTest(OHLC):
             balance.append(balance[-1]+date_result)
 
         # Calculate and store final data
-        trades = pd.DataFrame(closed_trades)
+        trades = pd.DataFrame([t.to_dict() for t in closed_trades])
         
         if not trades.empty:
             trades.loc[:,'%ret'] = trades['Result'] / trades['Balance']
@@ -877,8 +906,8 @@ class BackTest(OHLC):
             trades.loc[:,'AccountDD'] = 1 - trades['Balance']/trades['AccountPeak']
 
         self.trades = trades
-        self.open_trades = pd.DataFrame(open_trades)
-        self.open_orders = pd.DataFrame(open_orders)
+        self.open_trades = pd.DataFrame([t.to_dict() for t in open_trades])
+        self.open_orders = pd.DataFrame([t.to_dict() for t in open_orders])
         self.closed_trades = closed_trades
 
         return self.trades
@@ -1292,6 +1321,11 @@ if __name__ == '__main__':
             'XAG_USD': AssetConfig(name='XAG_USD', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000000, commission=Commissions('pershare', 1.0, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
     }
+    strategies = {
+        'trendExplosion': StrategyConfig(name='TE', assets={
+            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('pershare', 0.01, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+    }
 
 
 
@@ -1307,8 +1341,8 @@ if __name__ == '__main__':
             continue
         signal = getattr(signals, strat)
 
-        for t in strategies[strat]['instruments']:
-            temp = yf.Ticker('SPY').history(period='2y',interval='1h')
+        for t,c in strategies[strat].assets.items():
+            temp = yf.Ticker(t).history(period='2y',interval='1h')
             temp.loc[:,'SLdist'] = strategies[strat]['instruments'][t]['SL'] * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR'] \
                                     if strategies[strat]['instruments'][t]['volatility'] else strategies[strat]['instruments'][t]['SL']
             temp.loc[:,'TPdist'] = strategies[strat]['instruments'][t]['TP'] * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR'] \
