@@ -813,7 +813,8 @@ class BackTest(OHLC):
                                         trade.exit = trade.sl if candle['Open'] < trade.sl else candle['Open']
                                         trade.returns = trade.entry - trade.exit
                                         exited = True
-                                        if len(trade.candles) <= 1 and candle['Low'] < trade.tp and candle['High'] > trade.sl:
+                                        if len(trade.candles) <= 1 and candle['Low'] + trade.spread < trade.tp and \
+                                            candle['High'] + trade.spread > trade.sl:
                                             trade.onecandle = True
 
                                     if trade.signal == 'long' and candle['Low'] <= trade.sl: # Low
@@ -832,7 +833,8 @@ class BackTest(OHLC):
                                         trade.exit = trade.tp if candle['Open'] > trade.tp else candle['Open']
                                         trade.returns = trade.entry - trade.exit
                                         exited = True
-                                        if len(trade.candles) <= 1 and candle['Low'] < trade.tp and candle['High'] > trade.sl:
+                                        if len(trade.candles) <= 1 and candle['Low'] + trade.spread < trade.tp and \
+                                            candle['High'] + trade.spread > trade.sl:
                                             trade.onecandle = True
 
                                     if trade.signal == 'long' and candle['High'] >= trade.tp: #High
