@@ -105,9 +105,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def conservative(self,df:pd.DataFrame=None, lower:float=30.0,
                      upper:float=70.0, ind_name:str='rsi', 
@@ -158,9 +158,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def cross(self,df:pd.DataFrame=None, n:int=9, lower:float=40.0,
                 upper:float=60.0, ind_name:str='rsi', 
@@ -221,9 +221,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def divergence(self,df:pd.DataFrame=None, 
                       lower:float=40.0, upper:float=60.0, width:int=60,
@@ -334,9 +334,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def extremeDuration(self,df:pd.DataFrame=None,
                            lower:float=40.0, upper:float=60.0, 
@@ -401,9 +401,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def extreme(self,df:pd.DataFrame=None, lower:float=30.0, 
                    upper:float=70.0, ind_name:str='rsi',
@@ -459,9 +459,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def mPattern(self,df:pd.DataFrame=None, lower:float=30.0, 
                    upper:float=70.0, ind_name:str='rsi',
@@ -525,9 +525,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def reversal(self,df:pd.DataFrame=None, lower:float=30.0, 
                    upper:float=70.0, tolerance:float=3, ind_name:str='rsi',
@@ -586,9 +586,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def pullback(self,df:pd.DataFrame=None, 
                     lower:float=30.0, upper:float=70.0, tolerance:float=3,
@@ -686,9 +686,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def vPattern(self,df:pd.DataFrame=None, lower:float=30.0, 
             upper:float=70.0, ind_name:str='rsi',
@@ -746,9 +746,9 @@ class OscillatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
 class PrimaryIndicatorSignals(SignalsTemplate):
 
@@ -783,7 +783,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, 
-                                            datatype='Close', dataname='BB')
+                                            datatype='Close', dataname='BB', 
+                                            new_df=df)
 
         short_condition = (df['Close'] > df['BBUP']) & \
                         (df['Close'].shift(1) < df['BBUP'].shift(1))
@@ -802,9 +803,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def bollingerConservative(self,df:pd.DataFrame=None, n:int=20, dev:float=2.0,
                         strat_name:str='BBCons', exit_signal:bool=False
@@ -837,7 +838,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.bollingerBands(n=n, method='s', desvi=dev, 
-                                            datatype='Close', dataname='BB')
+                                            datatype='Close', dataname='BB', 
+                                            new_df=df)
 
         short_condition = (df['Close'] < df['BBUP']) & \
                         (df['Close'].shift(1) > df['BBUP'].shift(1)) & \
@@ -858,9 +860,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def bollingerDivergence(self,df:pd.DataFrame=None, n:int=20, dev:float=2.0,
                         lower:float=0, upper:float=1, width:int=60,
@@ -973,9 +975,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiAggresive(self,df:pd.DataFrame=None, n:int=14, lower:float=30.0,
                      upper:float=70.0, strat_name:str='RSIAgr', 
@@ -1010,7 +1012,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] > upper) & (df['RSI'].shift(1) < upper)
         long_condition = (df['RSI'] < lower) & (df['RSI'].shift(1) > lower)
@@ -1027,9 +1029,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiConservative(self,df:pd.DataFrame=None, n:int=14, lower:float=30.0,
                      upper:float=70.0, strat_name:str='RSICons', 
@@ -1064,7 +1066,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] < upper) & (df['RSI'].shift(1) > upper)
         long_condition = (df['RSI'] > lower) & (df['RSI'].shift(1) < lower)
@@ -1081,9 +1083,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiCross(self,df:pd.DataFrame=None, n:int=14, m:int=9, lower:float=40.0,
                 upper:float=60.0, strat_name:str='RSICross', 
@@ -1118,10 +1120,10 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.movingAverage(n=m, method='s', 
-                                datatype='Close', dataname='MA')
+        df = self.indicators.movingAverage(n=m, method='s', datatype='Close', 
+                                           dataname='MA', new_df=df)
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] > upper) & \
                         (df['Close'].shift(1) > df['MA'].shift(1)) & \
@@ -1142,9 +1144,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiDivergence(self,df:pd.DataFrame=None, n:int=14, m:int=9, 
                       lower:float=40.0, upper:float=60.0, width:int=60,
@@ -1183,7 +1185,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         max_i = len(df)
         long_condition = []
@@ -1255,9 +1257,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiExtremeDuration(self,df:pd.DataFrame=None, n:int=14,
                            lower:float=40.0, upper:float=60.0, 
@@ -1294,7 +1296,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] < upper) & \
                         (df['RSI'].shift(1) > upper) & \
@@ -1321,9 +1323,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def rsiExtreme(self,df:pd.DataFrame=None, n:int=14, lower:float=30.0, 
                    upper:float=70.0, strat_name:str='RSIExt',
@@ -1359,7 +1361,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] > upper) & \
                         (df['RSI'].shift(1) < upper)
@@ -1378,9 +1380,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def rsiM(self,df:pd.DataFrame=None, n:int=14, lower:float=30.0, 
                    upper:float=70.0, strat_name:str='RSIM',
@@ -1416,7 +1418,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] < upper) & \
                         (df['RSI'].shift(1) > upper) & \
@@ -1443,9 +1445,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiReversal(self,df:pd.DataFrame=None, n:int=14, lower:float=30.0, 
                    upper:float=70.0, tolerance:float=3, strat_name:str='RSIRev',
@@ -1482,7 +1484,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] <= upper) & \
                         (df['RSI'].shift(1) >= upper-tolerance) & \
@@ -1503,9 +1505,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiPullback(self,df:pd.DataFrame=None, n:int=14, 
                     lower:float=30.0, upper:float=70.0, tolerance:float=3,
@@ -1543,7 +1545,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         max_i = len(df)
         long_condition = []
@@ -1602,9 +1604,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiV(self,df:pd.DataFrame=None, n:int=5, lower:float=30.0, 
             upper:float=70.0, strat_name:str='RSIV',
@@ -1640,7 +1642,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         
             
         df = self.indicators.rsi(n=n, method='e', datatype='Close', 
-                                 dataname='RSI')
+                                 dataname='RSI', new_df=df)
 
         short_condition = (df['RSI'] < upper) & \
                         (df['RSI'].shift(1) > upper) & \
@@ -1661,9 +1663,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochAggresive(self,df:pd.DataFrame=None, n:int=14, lower:float=15.0,
                      upper:float=85.0, strat_name:str='StochAgr', 
@@ -1715,9 +1717,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochConservative(self,df:pd.DataFrame=None, n:int=14, lower:float=15.0,
                      upper:float=85.0, strat_name:str='StochCons', 
@@ -1751,7 +1753,7 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
         
-        df = self.indicators.stochasticOscillator(n=n, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, dataname='SO', new_df=df)
 
         short_condition = (df['SOK'] < upper) & (df['SOK'].shift(1) > upper)
         long_condition = (df['SOK'] > lower) & (df['SOK'].shift(1) < lower)
@@ -1768,9 +1770,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochCross(self,df:pd.DataFrame=None, n:int=14, m:int=9, 
                    lower:float=15.0, upper:float=85.0, strat_name:str='StochCross', 
@@ -1804,7 +1806,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
         
-        df = self.indicators.stochasticOscillator(n=n, m=m, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=m, p=3, dataname='SO', 
+                                                  new_df=df)
 
         short_condition = (df['SOD'] < df['SOK']) & \
                         (df['SOD'].shift(1) > df['SOK'].shift(1)) & \
@@ -1825,9 +1828,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochDivergence(self,df:pd.DataFrame=None, n:int=14, 
                       lower:float=15.0, upper:float=85.0, width:int=60,
@@ -1865,7 +1868,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         max_i = len(df)
         long_condition = []
@@ -1937,9 +1941,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochExtremeDuration(self,df:pd.DataFrame=None, n:int=14,
                            lower:float=20.0, upper:float=80.0, 
@@ -1975,7 +1979,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         short_condition = (df['SOD'] < upper) & \
                         (df['SOD'].shift(1) > upper) & \
@@ -2002,9 +2007,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def stochExtreme(self,df:pd.DataFrame=None, n:int=2, lower:float=15.0, 
                    upper:float=85.0, strat_name:str='StochExt',
@@ -2039,7 +2044,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         short_condition = (df['SOD'] > upper) & \
                         (df['SOD'].shift(1) < upper)
@@ -2058,9 +2064,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def stochM(self,df:pd.DataFrame=None, n:int=14, lower:float=20.0, 
                    upper:float=80.0, strat_name:str='StochM',
@@ -2095,7 +2101,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         short_condition = (df['SOD'] < upper) & \
                         (df['SOD'].shift(1) > upper) & \
@@ -2122,9 +2129,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochPullback(self,df:pd.DataFrame=None, n:int=14, 
                     lower:float=30.0, upper:float=70.0, tolerance:float=3,
@@ -2161,7 +2168,8 @@ class PrimaryIndicatorSignals(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         max_i = len(df)
         long_condition = []
@@ -2220,9 +2228,9 @@ class PrimaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
 class SecondaryIndicatorSignals(SignalsTemplate):
 
@@ -2279,9 +2287,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def deMarker(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
                        upper:float=0.8, strat_name:str='DMark', exit_signal:bool=False
@@ -2335,9 +2343,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def detrended(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
                     upper:float=0.8, strat_name:str='DTrend', exit_signal:bool=False
@@ -2392,9 +2400,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def dirProbIndex(self,df:pd.DataFrame=None, n:int=14, lower:float=0.2,
                     upper:float=0.8, strat_name:str='DProb', exit_signal:bool=False
@@ -2449,9 +2457,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
         if exit_signal:
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def modFisher(self,df:pd.DataFrame=None, n:int=10, lower:float=-2.0,
                     upper:float=2.0, strat_name:str='SFish', exit_signal:bool=False
@@ -2507,9 +2515,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
         
     def momentum(self,df:pd.DataFrame=None, n:int=14, lower:float=100.0,
                 upper:float=100.0, strat_name:str='MOsc', exit_signal:bool=False
@@ -2564,9 +2572,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def paraRSI(self,df:pd.DataFrame=None, n:int=14, lower:float=20,
                 upper:float=80, strat_name:str='PRSI', exit_signal:bool=False
@@ -2621,9 +2629,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def relVigor(self,df:pd.DataFrame=None, n:int=14, 
                  strat_name:str='RelVigor', exit_signal:bool=False
@@ -2675,9 +2683,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
             
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def rsiAtr(self,df:pd.DataFrame=None, n:int=14, m:int=14, o:int=14, lower:float=30,
                 upper:float=70, strat_name:str='RsiAtr', exit_signal:bool=False
@@ -2735,9 +2743,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def stochRsi(self,df:pd.DataFrame=None, n:int=14, m:int=3, p:int=3, lower:float=5,
                 upper:float=95, strat_name:str='StochRsi', exit_signal:bool=False
@@ -2795,9 +2803,9 @@ class SecondaryIndicatorSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
 class KSignals(SignalsTemplate):
 
@@ -2860,9 +2868,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
      
     def fibEnvelopes(self,df:pd.DataFrame=None, n:int=14, strat_name:str='FibEnv', 
                  exit_signal:bool=False) -> pd.DataFrame: 
@@ -2922,9 +2930,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def fibTiming(self,df:pd.DataFrame=None, count:int=8, n:int=5, m:int=3, 
                   strat_name:str='FibEnv', exit_signal:bool=False) -> pd.DataFrame: 
@@ -3026,9 +3034,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def supRes(self,df:pd.DataFrame=None, n:int=5, lower:float=0.05, upper:float=0.05,
                   strat_name:str='SupRes', exit_signal:bool=False) -> pd.DataFrame: 
@@ -3083,9 +3091,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def reversal(self,df:pd.DataFrame=None, n:int=100, dev:float=2,
                  strat_name:str='RevStrat', exit_signal:bool=False) -> pd.DataFrame: 
@@ -3138,9 +3146,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def volatBands(self,df:pd.DataFrame=None, n:int=20, mult:float=2,
                  strat_name:str='VolatB', exit_signal:bool=False) -> pd.DataFrame: 
@@ -3196,9 +3204,9 @@ class KSignals(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
 class ContrarianStrategies(SignalsTemplate):
         
@@ -3315,9 +3323,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
         
     def timingStrat(self,df:pd.DataFrame=None, n:int=1, lower:float=-5, 
                   upper:float=5, strat_name:str='MACDStrat', 
@@ -3386,9 +3394,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def fisherRsiStrat(self,df:pd.DataFrame=None, n:int=14, m:int=5, 
                        lower:float=15, upper:float=85, strat_name:str='FRSIStrat', 
@@ -3445,9 +3453,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def vamaStochStrat(self,df:pd.DataFrame=None, n:int=20, m:int=100, p:int=30, 
                        lower:float=20, upper:float=80, strat_name:str='VAMAStrat', 
@@ -3511,9 +3519,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def rsiDivStrat(self,df:pd.DataFrame=None, n:int=14, m:int=5, width:int=60,
                        lower:float=20, upper:float=80, strat_name:str='RSIDivStrat', 
@@ -3627,9 +3635,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def keltnerStrat(self,df:pd.DataFrame=None, n:int=10, strat_name:str='VAMAStrat', 
                        exit_signal:bool=False) -> pd.DataFrame: 
@@ -3679,9 +3687,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def slopeStrat(self,df:pd.DataFrame=None, n:int=14, m:int=14, 
                        lower:float=30, upper:float=70, strat_name:str='SlopeStrat', 
@@ -3736,9 +3744,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def robBookerStrat(self,df:pd.DataFrame=None, a:int=12, b:int=26, c:int=9, n:int=70, 
                        lower:float=30, upper:float=70, strat_name:str='RobBookerRev', 
@@ -3799,9 +3807,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def rsiMStrat(self,df:pd.DataFrame=None, n:int=14, width:int=40, 
                        lower:float=30, upper:float=70, strat_name:str='RSIM', 
@@ -3908,9 +3916,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def mandiStrat(self,df:pd.DataFrame=None, n:int=20, m:int=100,
                     strat_name:str='mandiStrat', exit_signal:bool=False) -> pd.DataFrame: 
@@ -3967,9 +3975,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def bbRsiStrat(self,df:pd.DataFrame=None, n:int=14, m:int=20, std:float=2, 
                        lower:float=30, upper:float=70, strat_name:str='BBrevStrat', 
@@ -4030,9 +4038,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def stochRsiStrat(self,df:pd.DataFrame=None, n:int=14, m:int=5, 
                        lower:float=30, upper:float=70, strat_name:str='OSoldStrat', 
@@ -4090,9 +4098,9 @@ class ContrarianStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
 class TrendStrategies(SignalsTemplate):
 
@@ -4145,9 +4153,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
 
     def maZone(self,df:pd.DataFrame=None, n:int=100, strat_name:str='MaZone', 
                exit_signal:bool=False) -> pd.DataFrame: 
@@ -4199,9 +4207,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def maRsi(self,df:pd.DataFrame=None, n:int=50, m:int=2, lower:float=5, upper:float=95, 
               strat_name:str='MaRSITrend', exit_signal:bool=False) -> pd.DataFrame: 
@@ -4258,9 +4266,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def maSlope(self,df:pd.DataFrame=None, n:int=20, m:int=20, lower:float=0, upper:float=0, 
               strat_name:str='MaSlopTrend', exit_signal:bool=False) -> pd.DataFrame: 
@@ -4315,9 +4323,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def macdTrend(self,df:pd.DataFrame=None, a:int=12, b:int=26, c:int=9, lower:float=0, 
                   upper:float=0, strat_name:str='MacdTrend', exit_signal:bool=False
@@ -4373,9 +4381,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def superTrend(self,df:pd.DataFrame=None, n:int=10, m:int=4,
               strat_name:str='SuperTrend', exit_signal:bool=False) -> pd.DataFrame: 
@@ -4424,9 +4432,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def paraSar(self,df:pd.DataFrame=None, n:int=50, strat_name:str='ParaSAR', 
                 exit_signal:bool=False) -> pd.DataFrame: 
@@ -4477,9 +4485,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def trendInten(self,df:pd.DataFrame=None, n:int=100, m:int=14, lower:float=40, 
                    upper:float=60, strat_name:str='TrendInten', 
@@ -4538,9 +4546,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def hidDiv(self,df:pd.DataFrame=None, n:int=14, lower:float=20, 
                 upper:float=70, width:int=30, strat_name:str='HiddenDiv', 
@@ -4576,7 +4584,8 @@ class TrendStrategies(SignalsTemplate):
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
         
             
-        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO')
+        df = self.indicators.stochasticOscillator(n=n, m=3, p=3, dataname='SO', 
+                                                  new_df=df)
 
         max_i = len(df)
         long_condition = []
@@ -4649,9 +4658,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def rsiNeutrality(self,df:pd.DataFrame=None, n:int=21, m:int=7, lower:float=50, upper:float=50, 
               strat_name:str='RSINeut', exit_signal:bool=False) -> pd.DataFrame: 
@@ -4712,9 +4721,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def vamaTrend(self,df:pd.DataFrame=None, n:int=3, m:int=233,
               strat_name:str='VamaTrend', exit_signal:bool=False) -> pd.DataFrame: 
@@ -4802,9 +4811,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def superRsiTrend(self,df:pd.DataFrame=None, n:int=14, m:int=20, mult:float=3,
                       lower:float=50, upper:float=50, strat_name:str='SuperRSI', 
@@ -4865,9 +4874,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def catapultTrend(self,df:pd.DataFrame=None, n:int=21, m:int=14, p:int=200,
                       level:float=30, lower:float=50, upper:float=50, 
@@ -4935,9 +4944,9 @@ class TrendStrategies(SignalsTemplate):
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
 class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, ContrarianStrategies, TrendStrategies):
     
@@ -4983,9 +4992,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
                                 short_condition.shift(self.shift), -1, 
                         0))
 
-        self.df = df.copy()
+        self.ohlc_df = df.copy()
 
-        return self.df
+        return self.ohlc_df
     
     def trendExplosion(self,df:pd.DataFrame=None, ma:int=20, dc_n:int=50, kc_mult:float=3.0,
                       strat_name:str='TE', exit_signal:bool=False) -> pd.DataFrame: 
@@ -5043,9 +5052,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
                         np.where((df['Close'].shift(1) > df['KCL2']) & \
                                  (df['Close'].shift(2) < df['KCL2'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def trendContinuation(self,df:pd.DataFrame=None, ma_1:int=20, ma_2:int=50, 
                           ma_3:int=100, strat_name:str='TC', 
@@ -5109,9 +5118,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) < df['KCH2']) & (df['Close'].shift(2) > df['KCH2'].shift(2)), 1,
                         np.where((df['Close'].shift(1) > df['KCL2']) & (df['Close'].shift(2) < df['KCL2'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
         
     def kamaTrend(self,df:pd.DataFrame=None, n_1:int=2, n_2:int=10, strat_name:str='TKAMA', 
                   exit_signal:bool=False) -> pd.DataFrame: 
@@ -5164,9 +5173,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
         
     def atrExt(self,df:pd.DataFrame=None, n:int=20, quantile:float=0.9,
                strat_name:str='ATRE', exit_signal:bool=False) -> pd.DataFrame: 
@@ -5217,9 +5226,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
             df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['High'].shift(2)), 1,
                         np.where((df['Close'].shift(1) < df['Low'].shift(2)), -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
     def indexPullback(self,df:pd.DataFrame=None, n:int=200, u:int=7, d:int=5, 
                       strat_name:str='IdxPull', exit_signal:bool=False) -> pd.DataFrame: 
@@ -5255,9 +5264,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                             dataname='SMA', new_df=df)
         
-        short_condition = (df['High'].rolling(d).max() < df['Close']) & \
-                        (df['Close'] > df['SMA'])
-        long_condition = (df['Low'].rolling(d).min() > df['Close']) & \
+        short_condition = (df['High'].rolling(d).max().shift(1) < df['Close']) & \
+                        (df['Close'] < df['SMA'])
+        long_condition = (df['Low'].rolling(u).min().shift(1) > df['Close']) & \
                         (df['Close'] > df['SMA'])
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
@@ -5279,9 +5288,9 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
             df[self._renameExit(strat_name)] = np.where(long_condition, 1,
                         np.where(short_condition, -1, 0))
 
-        self.df = df
+        self.ohlc_df = df
 
-        return self.df
+        return self.ohlc_df
     
 def plotSignals(df:pd.DataFrame, indicators:list=[]) -> None:
 

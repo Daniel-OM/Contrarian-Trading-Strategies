@@ -3117,7 +3117,7 @@ class Statistics(OHLC):
 
 
 
-class CandlePattern(OHLC):
+class CandlePatterns(OHLC):
 
     '''
     Clase con las funciones de reconocimiento de patrones
