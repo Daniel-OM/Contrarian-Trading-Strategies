@@ -24,7 +24,7 @@ class SignalsTemplate(OHLC):
         self.errors = errors
         self.verbose = verbose
         self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
-        self.indicators = Indicators(df)
+        self.indicators = Indicators(df, errors=errors, verbose=verbose)
         self.shift = 1 if backtest else 0
 
     def getIndicators(self):

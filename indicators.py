@@ -93,9 +93,13 @@ class OHLC:
                 return df.copy(deep=True)
 
         elif not isinstance(self.ohlc_df, pd.DataFrame):
-            raise ValueError('There is no DataFrame with data to use.')
-        
-        return self.ohlc_df.copy(deep=True)
+            if self.errors:
+                raise ValueError('There is no DataFrame with data to use.')
+            elif self.verbose:
+                print('There is no DataFrame with data to use.')
+            return pd.DataFrame()
+        else:
+            return self.ohlc_df.copy(deep=True)
 
     def _labelCheck(self, label:str) -> None:
 

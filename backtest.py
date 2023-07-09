@@ -1,6 +1,8 @@
 
 import os
+import copy
 import datetime as dt
+import pytz
 import numpy as np
 import pandas as pd
 
@@ -9,7 +11,7 @@ from plotly.subplots import make_subplots
 
 from signals import Signals
 from indicators import OHLC, Indicators
-from google_sheets.google_sheets import GoogleSheets
+#from google_sheets.google_sheets import GoogleSheets
 
 
 class Commissions:
@@ -37,6 +39,24 @@ class Commissions:
         self.value = commission/100 if ctype == 'percentage' else commission
         self.min = cmin
         self.max = cmax
+    
+    def to_dict(self) -> dict:
+
+        '''
+        Generates a dictionary with the config for the commissions.
+
+        Returns
+        -------
+        object: dict
+            Contains the config for the commissions.
+        '''
+
+        return {
+            'type': self.type,
+            'value': self.value,
+            'min': self.min,
+            'max': self.max
+        }
 
 class AssetConfig:
 
@@ -73,7 +93,7 @@ class AssetConfig:
         self.risk = risk
         self.sl = sl
         self.tp = tp
-        self.order = order
+        self.order_type = order
         self.min_size = min_size
         self.max_size = max_size
         self.commission = commission
@@ -95,7 +115,7 @@ class AssetConfig:
             'risk': self.risk,
             'SL': self.sl, 
             'TP': self.tp, 
-            'order_type': self.order, 
+            'order_type': self.order_type, 
             'min_size': self.min_size, 
             'max_size': self.max_size
         }
@@ -175,7 +195,7 @@ class BtConfig:
                 use_sl:bool=True, use_tp:bool=True, time_limit:int=365,
                 min_size:float=1, max_size:float=10000000, commission:Commissions=None,
                 max_trades:int=3, filter_ticker:bool=True, filter_strat:bool=False,
-                reset_orders:bool=True, continue_onecandle=True
+                reset_orders:bool=True, continue_onecandle=True, offset_aware:bool=False
                 ) -> None:
 
         '''
@@ -217,13 +237,13 @@ class BtConfig:
             were triggered we can ignore the exit by setting the input to 
             True. This way the trade will stay open till a future candle 
             triggers another exit signal.
+        offset_aware: bool
+            True to give a timezone to the dates.
         '''
 
+        self.init_date = self._dateFormat(init_date, offset_aware)
+        self.final_date = self._dateFormat(final_date, offset_aware)
         self.capital = capital
-        self.init_date = dt.datetime.strptime(init_date, '%Y-%m-%d') \
-                        if isinstance(init_date, str) else init_date
-        self.final_date = dt.datetime.strptime(final_date, '%Y-%m-%d') \
-                        if isinstance(final_date, str) else final_date
         self.use_sl = use_sl
         self.use_tp = use_tp
         self.time_limit = time_limit
@@ -235,6 +255,31 @@ class BtConfig:
         self.filter_strat = filter_strat
         self.reset_orders = reset_orders
         self.continue_onecandle = continue_onecandle
+
+    def _dateFormat(self, datetime:str, offset:bool=False) -> dt.datetime:
+
+        '''
+        Generates a dictionary with the config for the backtest.
+
+        Parameters
+        ----------
+        datetime: str
+            DateTime to start the backtest. Must be in format: YYYY-MM-DD.
+        offset: bool
+            Make the date offset aware. The offset will be UTC.
+
+        Returns
+        -------
+        datetime: str | dt.datetime
+            Contains the formated date.
+        '''
+        
+        if isinstance(datetime, str):
+            datetime = dt.datetime.strptime(datetime, '%Y-%m-%d')
+            if offset:
+                datetime = datetime.replace(tzinfo=pytz.UTC)
+
+        return datetime
 
     def to_dict(self) -> dict:
 
@@ -262,8 +307,8 @@ class BtConfig:
 class Trade:
 
     def __init__(self, candle:dict, signal:str, strategy:StrategyConfig,
-                    entry:float, slprice:float, tpprice:float, 
-                    size:float, balance:float, asset:AssetConfig) -> None:
+                entry:float, slprice:float, tpprice:float, 
+                balance:float, asset:AssetConfig) -> None:
 
         '''
         Generates the trade object for the backtest.
@@ -276,52 +321,90 @@ class Trade:
             Direction for the trade. It can be 'long' or 'short'.
         strategy: str
             Name of the strategy used to enter the trade.
-        order: str
-            Order type. It can be 'market', 'limit' or 'stop'.
         entry: float
             Entry price.
         slprice: float
             SL price.
         tpprice: float
             TP price.
-        commission: Commissions
-            Commissions object associated to the trade.
-        size: float
-            Size of the trade.
-        risk: float
-            Risk of the trade.
         balance: float
             Balance when entering the trade.
+        asset: AssetConfig
+            AssetConfig object with the asset config.
         '''
 
         # comission = asset.commission.value * 100 if 'JPY' in candle['Ticker'] and \
         #             asset.commission.type == 'pershare' else asset.commission.value
-        strategy.assets = [t for t in strategy.assets.keys()]
+        strategy = copy.deepcopy(strategy)
+        asset = copy.deepcopy(asset)
 
         self.datetime = candle['DateTime']
         self.entrytime =  candle['DateTime']
         self.exittime = candle['DateTime']
         self.ticker = candle['Ticker']
+        self.asset = asset
         self.strategy = strategy
-        self.order = asset.order
+        self.order = asset.order_type
         self.signal = signal
         self.entry = entry
         self.exit = candle['Close']
         self.sl = slprice
         self.tp = tpprice
+        self.sldist = abs(entry - slprice)
         self.returns = candle['Close'] - entry
         self.spread = candle['Spread']
-        self.commission = asset.commission
+        self.commission_type = asset.commission
+        self.commission = 0.0
         self.risk = asset.risk
         self.balance = balance
-        self.size = size if balance > 0 else 0.0
+        self.size = self.calculateSize()
         self.result = self.returns * self.size - self.calculateCommission()
-        self.sldist = abs(entry - slprice)
         self.high = candle['High']
         self.low = candle['Low']
         self.candles = []
         self.onecandle = False
-        self.asset = asset
+
+    def calculateSize(self):
+
+        '''
+        Calculates the size of the trade.
+
+        Returns
+        -------
+        size: float
+            Size of the trade.
+        '''
+
+        self.size = self.risk / self.sldist * self.balance
+        if self.size > self.asset.max_size:
+            self.size = self.asset.max_size
+        elif self.size < self.asset.min_size:
+            self.size = self.asset.min_size
+
+        if self.balance < 0:
+            self.size = 0.0
+
+        return self.size
+    
+    def calculateReturns(self):
+
+        '''
+        Calculates the returns of the trade.
+
+        Returns
+        -------
+        returns: float
+            Returns of the trade.
+        '''
+
+        if self.signal == 'long':
+            self.returns = self.exit - self.entry
+        elif self.signal == 'short':
+            self.returns = self.entry - self.exit
+        else:
+            raise(ValueError(f'Signal ({self.signal}) not valid.'))
+
+        return self.returns
     
     def calculateCommission(self):
 
@@ -334,17 +417,35 @@ class Trade:
             Commission charged for the trade.
         '''
 
-        commission = self.commission.value * self.size if self.commission.type == 'pershare' \
-                    else self.commission.value * self.returns
+        commission = self.commission_type.value * self.size \
+                    if self.commission_type.type == 'pershare' \
+                    else self.commission_type.value * self.returns
         
-        if commission > self.commission.max:
-            commission = self.commission.max
-        elif commission < self.commission.min:
-            commission = self.commission.min
+        if self.commission_type.max != None and \
+            commission > self.commission_type.max:
+            commission = self.commission_type.max
+        elif self.commission_type.min != None and \
+            commission < self.commission_type.min:
+            commission = self.commission_type.min
 
         self.commission = commission
 
         return self.commission
+    
+    def calculateResult(self):
+
+        '''
+        Calculates the result of the trade.
+
+        Returns
+        -------
+        result: float
+            Result of the trade.
+        '''
+
+        self.result = self.returns * self.size - self.calculateCommission()
+
+        return self.result
 
     def to_dict(self):
 
@@ -369,15 +470,15 @@ class Trade:
             'Exit': self.exit,
             'SL': self.sl,
             'TP': self.tp,
-            'Return': self.returns,
+            'Return': self.calculateReturns(),
             'Result': self.calculateResult(),
             'Spread': self.spread,
             'Commission': self.calculateCommission(),
-            'CommissionStruc': self.commission.to_dict(),
+            'CommissionStruc': self.asset.commission.to_dict(),
             'Risk': self.risk,
             'Balance': self.balance,
-            'Size': self.size if self.balance > 0 else 0.0,
-            'SLdist': abs(self.entry - self.sl),
+            'Size': self.calculateSize(),
+            'SLdist': self.sldist,
             'High': max([c['High'] for c in self.candles]),
             'Low': min([c['Low'] for c in self.candles]),
             'Candles': self.candles,
@@ -416,6 +517,7 @@ class BackTest(OHLC):
         '''
 
         self.strategies = strategies
+        print({s:self.strategies[s].to_dict() for s in self.strategies})
         self.config = config if config != None else self.config
 
     def fillHalts(self, df:pd.DataFrame):
@@ -454,7 +556,7 @@ class BackTest(OHLC):
             Contains the current iteration candle.
         '''
         
-        self.entries = [c.replace('Entry','').replace('entry','') for c in candle.columns \
+        self.entries = [c.replace('Entry','').replace('entry','') for c in candle.index \
                         if 'entry' in c.lower()]
     
     def getExits(self, candle):
@@ -468,7 +570,7 @@ class BackTest(OHLC):
             Contains the current iteration candle.
         '''
         
-        self.exits = [c.replace('Exit','').replace('exit','') for c in candle.columns \
+        self.exits = [c.replace('Exit','').replace('exit','') for c in candle.index \
                         if 'exit' in c.lower()]
 
     def openQty(self, candle, open_trades:list, filter_ticker:bool=True, 
@@ -574,7 +676,7 @@ class BackTest(OHLC):
         '''
 
         # Check if the needed data is in the dataframe
-        self.data_df = self._newDf(df, needed_cols=['Open', 'High', 'Low', 'Close', 'Spread', 'SLdist', 'TPdist'], 
+        self.data_df = self._newDf(df, needed_cols=['DateTime', 'Open', 'High', 'Low', 'Close', 'Spread', 'SLdist', 'TPdist'], 
                                    overwrite=True)
 
         # Initialize variables
@@ -604,7 +706,7 @@ class BackTest(OHLC):
                     continue
                 
                 # Check if we are between the backtest dates
-                if candle['Date'] < self.config.init_date or candle['Date'] > self.config.final_date:
+                if candle['DateTime'] < self.config.init_date or candle['DateTime'] > self.config.final_date:
                     continue
                     
                 # Look for entries
@@ -622,20 +724,14 @@ class BackTest(OHLC):
                             trades_qty = trades_qty[strat]
 
                         # If there are any orders and didn't reach the trades qty limit
-                        if candle[strat] != 0 and trades_qty < self.config.max_trades:
+                        if candle[f'{strat}Entry'] != 0 and trades_qty < self.config.max_trades:
 
                             asset = self.strategies[strat].assets[candle['Ticker']]
-                            risk = asset.risk
                             sldist = candle['SLdist']
                             tpdist = candle['TPdist']
-                            size = risk/sldist*balance[-1]
-                            if size > asset.max_size:
-                                size = asset.max_size
-                            elif size < asset.min_size:
-                                size = asset.min_size
 
                             # Long orders
-                            if candle[strat] > 0:
+                            if candle[f'{strat}Entry'] > 0:
                                 # Buy order entry price
                                 if asset.order_type == 'market':
                                     entry = candle['Open'] + candle['Spread']
@@ -659,7 +755,7 @@ class BackTest(OHLC):
                                 # Define the new buy order
                                 if not entered:
                                     trade = Trade(candle, 'long', self.strategies[strat], entry, entry - sldist, 
-                                                  entry + tpdist, size, balance[-1], asset)
+                                                  entry + tpdist, balance[-1], asset)
 
                                     # If market order execute it if not append to orders
                                     if asset.order_type == 'market':
@@ -668,9 +764,8 @@ class BackTest(OHLC):
                                         open_orders.append(trade)
 
                             # Short orders
-                            if candle[strat] < 0:
+                            if candle[f'{strat}Entry'] < 0:
                                 # Sell order entry price
-                                trade_order = asset.order_type
                                 if asset.order_type == 'market':
                                     entry = candle['Open']# - candle['Spread']
                                 elif asset.order_type == 'stop':
@@ -693,7 +788,7 @@ class BackTest(OHLC):
                                 # Define the new sell order
                                 if not entered:
                                     trade = Trade(candle, 'short', self.strategies[strat], entry, entry + sldist, 
-                                                  entry - tpdist, size, balance[-1], asset)
+                                                  entry - tpdist, balance[-1], asset)
 
                                     # If market order execute it if not append to orders
                                     if asset.order_type == 'market':
@@ -793,7 +888,7 @@ class BackTest(OHLC):
                     if trade.ticker == candle['Ticker']:
                         trade.candles.append({'DateTime':candle['DateTime'] ,'Open':candle['Open'], 'High':candle['High'], 
                                         'Low':candle['Low'], 'Close':candle['Close'], 'Volume': candle['Volume']})
-#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- Aquí te has quedadoooo
+                        
                 # Check open trades limits orders
                 if len(open_trades) > 0:
                     
@@ -805,91 +900,77 @@ class BackTest(OHLC):
                             exited = False
 
                             # Check SL
-                            if self.config.use_sl:
+                            if self.config.use_sl and (not self.config.continue_onecandle or len(trade.candles) > 1): # trade.order != 'stop'
 
-                                if trade.order != 'stop' or not self.config.continue_onecandle or len(trade.candles) > 1:
+                                if trade.signal == 'short' and candle['High'] + trade.spread >= trade.sl: # High
+                                    trade.exit = trade.sl if candle['Open'] < trade.sl else candle['Open']
+                                    exited = True
+                                    if len(trade.candles) <= 1 and candle['Low'] + trade.spread <= trade.tp and \
+                                        candle['High'] + trade.spread >= trade.sl:
+                                        trade.onecandle = True
 
-                                    if trade.signal == 'short' and candle['High'] + trade.spread >= trade.sl: # High
-                                        trade.exit = trade.sl if candle['Open'] < trade.sl else candle['Open']
-                                        trade.returns = trade.entry - trade.exit
-                                        exited = True
-                                        if len(trade.candles) <= 1 and candle['Low'] + trade.spread < trade.tp and \
-                                            candle['High'] + trade.spread > trade.sl:
-                                            trade.onecandle = True
-
-                                    if trade.signal == 'long' and candle['Low'] <= trade.sl: # Low
-                                        trade.exit = trade.sl if candle['Open'] > trade.sl else candle['Open']
-                                        trade.returns = trade.exit - trade.entry
-                                        exited = True
-                                        if len(trade.candles) <= 1 and candle['High'] > trade.tp and candle['Low'] < trade.sl:
-                                            trade.onecandle = True
+                                if trade.signal == 'long' and candle['Low'] <= trade.sl: # Low
+                                    trade.exit = trade.sl if candle['Open'] > trade.sl else candle['Open']
+                                    exited = True
+                                    if len(trade.candles) <= 1 and candle['High'] >= trade.tp and candle['Low'] <= trade.sl:
+                                        trade.onecandle = True
                             
                             # Check TP
-                            if self.config.use_tp and not exited:
+                            if self.config.use_tp and not exited and (not self.config.continue_onecandle or len(trade.candles) > 1): # trade.order != 'limit'
 
-                                if trade.order != 'limit' or not self.config.continue_onecandle or len(trade.candles) > 1:
+                                if trade.signal == 'short' and candle['Low'] + trade.spread <= trade.tp: #Low
+                                    trade.exit = trade.tp if candle['Open'] > trade.tp else candle['Open']
+                                    exited = True
+                                    if len(trade.candles) <= 1 and candle['Low'] + trade.spread <= trade.tp and \
+                                        candle['High'] + trade.spread >= trade.sl:
+                                        trade.onecandle = True
 
-                                    if trade.signal == 'short' and candle['Low'] + trade.spread <= trade.tp: #Low
-                                        trade.exit = trade.tp if candle['Open'] > trade.tp else candle['Open']
-                                        trade.returns = trade.entry - trade.exit
-                                        exited = True
-                                        if len(trade.candles) <= 1 and candle['Low'] + trade.spread < trade.tp and \
-                                            candle['High'] + trade.spread > trade.sl:
-                                            trade.onecandle = True
-
-                                    if trade.signal == 'long' and candle['High'] >= trade.tp: #High
-                                        trade.exit = trade.tp if candle['Open'] < trade.tp else candle['Open']
-                                        trade.returns = trade.exit - trade.entry
-                                        exited = True
-                                        if len(trade.candles) <= 1 and candle['High'] > trade.tp and candle['Low'] < trade.sl:
-                                            trade.onecandle = True
+                                if trade.signal == 'long' and candle['High'] >= trade.tp: #High
+                                    trade.exit = trade.tp if candle['Open'] < trade.tp else candle['Open']
+                                    exited = True
+                                    if len(trade.candles) <= 1 and candle['High'] >= trade.tp and candle['Low'] <= trade.sl:
+                                        trade.onecandle = True
                             
                             # Check time limit
-                            if not exited and self.config['time_limit'] > 0 and len(trade.candles) >= self.config['time_limit']:
+                            if not exited and trade.strategy.time_limit > 0 and len(trade.candles) >= trade.strategy.time_limit:
                                 trade.exit = candle['Close']
-                                if trade.signal == 'long':
-                                    trade.returns = trade.exit - trade.entry
-                                elif trade.signal == 'short':
-                                    trade.returns = trade.entry - trade.exit
                                 exited = True
 
                             if exited:
-                                trade.result = trade.returns * trade.size - trade.commission.value
                                 trade.exittime = candle['DateTime']
                                 closed_trades.append(trade)
-                                date_result += trade.result
+                                date_result += trade.calculateResult()
                                 delete.append(trade)
                     
                     # Delete open trades if already exited
                     for d in delete:
                         open_trades.remove(d)
-                
+
                 # Check open trades Exits if the strategy has exit conditions
-                if 'Exit' in self.data_df.columns and candle['Exit'] != 0:
+                if len(self.exits) > 0:
 
                     delete = []
-                    for trade in open_trades:
-                        if trade.ticker == candle['Ticker']:
+                    for strat in self.entries:
 
-                            exited = False
+                        for trade in open_trades:
+                            if trade.ticker == candle['Ticker'] and trade.strategy == strat:
 
-                            # Exit Buy
-                            if candle['Exit'] == 1 and trade.signal == 'long':
-                                trade.exit = candle['Open']
-                                trade.returns = trade.exit - trade.entry
-                                exited = True
-                            # Exit Sell
-                            elif candle['Exit'] == -1 and trade.signal == 'short':
-                                trade.exit = candle['Open'] + trade.spread
-                                trade.returns = trade.entry - trade.exit
-                                exited = True
-                                    
-                            if exited:
-                                trade.result = trade.returns * trade.size - trade.commission.value
-                                trade.exittime = candle['DateTime']
-                                closed_trades.append(trade)
-                                date_result += trade.result
-                                delete.append(trade)
+                                exited = False
+
+                                # Exit Buy
+                                if candle[f'{strat}Exit'] == 1 and trade.signal == 'long':
+                                    trade.exit = candle['Open']
+                                    exited = True
+                                # Exit Sell
+                                elif candle[f'{strat}Exit'] == -1 and trade.signal == 'short':
+                                    trade.exit = candle['Open'] + trade.spread
+                                    exited = True
+                                        
+                                if exited:
+                                    trade.exittime = candle['DateTime']
+                                    closed_trades.append(trade)
+                                    date_result += trade.calculateResult()
+                                    delete.append(trade)
                     
                     for d in delete:
                         open_trades.remove(d)
@@ -910,45 +991,33 @@ class BackTest(OHLC):
         self.trades = trades
         self.open_trades = pd.DataFrame([t.to_dict() for t in open_trades])
         self.open_orders = pd.DataFrame([t.to_dict() for t in open_orders])
-        self.closed_trades = closed_trades
+        self.closed_trades = [t.to_dict() for t in closed_trades]
 
         return self.trades
 
-    def saveResult(self, file:str='TradesBacktested,xlsx', sheet:str='CompleteTrades'):
+    def saveResult(self, file:str='TradesBacktested.xlsx', sheet:str='CompleteTrades'):
 
         writer = pd.ExcelWriter(file)
         self.trades.to_excel(writer, sheet_name=sheet, index=False)
         writer.save()
 
-    def resultsToGoogle(self, sheetid:str, sheetrange:str):
+    # def resultsToGoogle(self, sheetid:str, sheetrange:str):
 
-        google = GoogleSheets(sheetid, secret_path=os.path.join('google_sheets','client_secrets.json'))
-        google.appendValues(self.trades.values, sheetrange=sheetrange)
+    #     google = GoogleSheets(sheetid, secret_path=os.path.join('google_sheets','client_secrets.json'))
+    #     google.appendValues(self.trades.values, sheetrange=sheetrange)
 
-    def btKPI(self, print_stats=True):
+    def btKPI(self, print_stats:bool=True):
         
-        self.trades['Ret'] = self.trades['Result']/(abs(self.trades['Entry']-self.trades['SL'])*self.trades['Size']) * self.trades['Risk']
+        self.trades['Ret'] = self.trades['Result']/(self.trades['SLdist']*self.trades['Size']) * self.trades['Risk']
         self.trades['CumRet'] = (1+self.trades['Ret']).cumprod()
 
         # Backtest analysis
         winrate = len(self.trades['Return'][self.trades['Return'] > 0.0])/len(self.trades['Return'])
-        avg_win = self.trades['%ret'][self.trades['%ret'] > 0].mean()
-        avg_loss = self.trades['%ret'][self.trades['%ret'] < 0].mean()
+        avg_win = self.trades['Ret'][self.trades['Ret'] > 0].mean()
+        avg_loss = self.trades['Ret'][self.trades['Ret'] < 0].mean()
         expectancy = (winrate*avg_win - (1-winrate)*abs(avg_loss))
 
         days = np.busday_count(self.data_df['Date'].tolist()[0].date(), self.data_df['Date'].tolist()[-1].date())
-
-        if print_stats:
-            print(f'Winrate: {winrate :%}') # With two decimal spaces and commas for the thousands :,.2f
-            print(f'Avg. Win: {avg_win :%}')
-            print(f'Avg. Loss: {avg_loss :%}')
-            print(f'Expectancy: {expectancy :%}')
-            print(f'Trading frequency: {len(self.trades)/days * 100//1/100}')
-            #print(f'Monthly Expectancy: {((1 + expectancy*len(trades)/days)**(20) - 1) :%}')
-            #print(f'Anual Expectancy: {((1 + expectancy*len(trades)/days)**(52*5) - 1) :%}')
-            print(f'Kelly: {(winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win :%}')
-            print(f"Backtest Max. DD: {self.trades['AccountDD'].max() :%}")
-            # print(f'Ulcer Index: {(((trades['AccountDD'] * 100)**2).sum()/len(trades['AccountDD']))**(1/2) * 100//1/100}')
             
         stats = {
             'Winrate': winrate,
@@ -960,6 +1029,18 @@ class BackTest(OHLC):
             'Kelly': (winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win,
             'MaxDD': self.trades['AccountDD'].max()
         }
+
+        if print_stats:
+            print(f"Winrate: {winrate :%}") # With two decimal spaces and commas for the thousands :,.2f
+            print(f"Avg. Win: {avg_win :%}")
+            print(f"Avg. Loss: {avg_loss :%}")
+            print(f"Expectancy: {expectancy :%}")
+            print(f"Trading frequency: {stats['Frequency']}")
+            #print(f"Monthly Expectancy: {((1 + expectancy*len(trades)/days)**(20) - 1) :%}")
+            #print(f"Anual Expectancy: {((1 + expectancy*len(trades)/days)**(52*5) - 1) :%}")
+            print(f"Kelly: {stats['Kelly'] :%}")
+            print(f"Backtest Max. DD: {stats['MaxDD'] :%}")
+            # print(f'Ulcer Index: {(((trades['AccountDD'] * 100)**2).sum()/len(trades['AccountDD']))**(1/2) * 100//1/100}')
 
         return stats
 
@@ -1089,7 +1170,7 @@ class BackTest(OHLC):
         # fig.update_xaxes(title_text='Return (%)', row=3, col=1)
 
         fig.update_xaxes(title_text='Date', row=2, col=1)
-        fig.update_layout(title=f"Account balance {self.config['capital'] + self.trades['Result'].sum()*100//1/100}$", autosize=False,
+        fig.update_layout(title=f"Account balance {self.config.capital + self.trades['Result'].sum()*100//1/100}$", autosize=False,
                             width=1000,
                             height=700)
 
@@ -1282,7 +1363,9 @@ if __name__ == '__main__':
 
     config = BtConfig('2018-01-01', (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d'), capital=10000.0, 
                       use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
-                      max_size=10000000, commission=Commissions())
+                      max_size=10000000, commission=Commissions(), max_trades=3, 
+                      filter_ticker=True, filter_strat=False, reset_orders=True,
+                      continue_onecandle=False, offset_aware=False)
 
 
     strategies = {
@@ -1332,23 +1415,27 @@ if __name__ == '__main__':
 
 
     # Prepare data needed for backtest
-    signals = Signals(backtest=True)
-    indicators = Indicators()
+    signals = Signals(backtest=True, errors=False)
+    indicators = Indicators(errors=False)
     data = {}
     complete = []
     for strat in strategies:
 
         data[strat] = {}
         if strat not in dir(signals):
+            print(f'{strat} not between the defined signals.')
             continue
         signal = getattr(signals, strat)
 
         for t,c in strategies[strat].assets.items():
-            temp = yf.Ticker(t).history(period='2y',interval='1h')
-            temp.loc[:,'SLdist'] = strategies[strat]['instruments'][t]['SL'] * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR'] \
-                                    if strategies[strat]['instruments'][t]['volatility'] else strategies[strat]['instruments'][t]['SL']
-            temp.loc[:,'TPdist'] = strategies[strat]['instruments'][t]['TP'] * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR'] \
-                                    if strategies[strat]['instruments'][t]['volatility'] else strategies[strat]['instruments'][t]['TP']
+
+            if strat not in data or t not in data[strat]:
+                temp = yf.Ticker(t).history(period='2y',interval='1h')
+            else:
+                temp = data[strat][t].copy()
+
+            temp.loc[:,'SLdist'] = strategies[strat].assets[t].sl * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
+            temp.loc[:,'TPdist'] = strategies[strat].assets[t].tp * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
             temp.loc[:,'Ticker'] = [t]*len(temp)
             temp.loc[:,'Date'] = pd.to_datetime(temp.index)
             
@@ -1356,28 +1443,28 @@ if __name__ == '__main__':
                 temp['Volume'] = [0]*len(temp)
 
             temp = signal(df=temp, strat_name=strat)
-            temp['Entry'] = temp[strat].apply(lambda x: [{'strategy':strategies[strat].name, 'side':x}])
             data[strat][t] = temp.copy()
 
 
         # Backtest
-        bt = BackTest(pairs_config={strat: strategies[strat]['instruments']}, 
-                    config={**config, **{k: strategies[strat][k] for k in strategies[strat] \
-                                        if k not in ['name','instruments','timeframe']}})
+        bt = BackTest(strategies={strat: strategies[strat]}, 
+                    config=config)
 
-        # Show main metrics
+        # Prepare data
         df = pd.concat([data[strat][t] for t in data[strat]], ignore_index=True)
-        df.sort_values('Date', inplace=True)
+        df.rename(columns={'Date':'DateTime'}, inplace=True)
+        df.sort_values('DateTime', inplace=True)
         df.loc[:,'DateTime'] = pd.to_datetime(df['DateTime'], unit='s')
+        df['DateTime'] = df['DateTime'].dt.tz_convert(None)
         df['Close'] = df['Close'].fillna(method='ffill')
         df['Spread'] = df['Spread'].fillna(method='ffill')
         df['Open'] = np.where(df['Open'] != df['Open'], df['Close'], df['Open'])
         df['High'] = np.where(df['High'] != df['High'], df['Close'], df['High'])
         df['Low'] = np.where(df['Low'] != df['Low'], df['Close'], df['Low'])
 
-        trades = bt.backtest(df=df, reset_orders=True)
+        trades = bt.backtest(df=df)
 
-        # bt.btPlot(log=True)
+        bt.btPlot(log=True)
 
         complete.append(trades[trades['OneCandle'] == False])
 
@@ -1388,11 +1475,11 @@ if __name__ == '__main__':
     final_df['ID'] = [''] * len(final_df)
     final_df['Strategy'] = complete['Strategy']
     final_df['Ticker'] = complete['Ticker']
-    final_df['Side'] = np.where(complete['Signal'] == 'Buy', 'buy', 'sell')
+    final_df['Side'] = np.where(complete['Signal'] == 'long', 'buy', 'sell')
     final_df['Entry'] = complete['Entry']
     final_df['Slippage'] = [0]*len(final_df)
     final_df['Spread'] = complete['Spread']
-    final_df['Commission'] = [0]*len(final_df)
+    final_df['Commission'] = complete['Commission']
     final_df['Locate'] = [0]*len(final_df)
     final_df['SL'] = complete['SL']
     final_df['TP'] = complete['TP']
