@@ -12,6 +12,8 @@ from plotly.subplots import make_subplots
 from signals import Signals
 from indicators import OHLC, Indicators
 #from google_sheets.google_sheets import GoogleSheets
+from degiroapi.degiro import DeGiro, Product, IntervalType
+
 
 
 class Commissions:
@@ -191,7 +193,7 @@ class BtConfig:
     Class used to create the backtest config.
     '''
 
-    def __init__(self, init_date:str, final_date:str, capital:float=10000.0,
+    def __init__(self, init_date:str=None, final_date:str=None, capital:float=10000.0,
                 use_sl:bool=True, use_tp:bool=True, time_limit:int=365,
                 min_size:float=1, max_size:float=10000000, commission:Commissions=None,
                 max_trades:int=3, filter_ticker:bool=True, filter_strat:bool=False,
@@ -240,6 +242,11 @@ class BtConfig:
         offset_aware: bool
             True to give a timezone to the dates.
         '''
+
+        if init_date == None:
+            init_date = (dt.date.today() - dt.timedelta(days=365*2)).strftime('%Y-%m-%d')
+        if final_date == None:
+            final_date = dt.date.today().strftime('%Y-%m-%d')
 
         self.init_date = self._dateFormat(init_date, offset_aware)
         self.final_date = self._dateFormat(final_date, offset_aware)
@@ -307,8 +314,7 @@ class BtConfig:
 class Trade:
 
     def __init__(self, candle:dict, signal:str, strategy:StrategyConfig,
-                entry:float, slprice:float, tpprice:float, 
-                balance:float, asset:AssetConfig) -> None:
+                 entry:float, balance:float) -> None:
 
         '''
         Generates the trade object for the backtest.
@@ -323,20 +329,17 @@ class Trade:
             Name of the strategy used to enter the trade.
         entry: float
             Entry price.
-        slprice: float
-            SL price.
-        tpprice: float
-            TP price.
         balance: float
             Balance when entering the trade.
-        asset: AssetConfig
-            AssetConfig object with the asset config.
         '''
 
         # comission = asset.commission.value * 100 if 'JPY' in candle['Ticker'] and \
         #             asset.commission.type == 'pershare' else asset.commission.value
         strategy = copy.deepcopy(strategy)
-        asset = copy.deepcopy(asset)
+        asset = copy.deepcopy(strategy.assets[candle['Ticker']])
+
+        sldist = asset.sl * candle['distATR']
+        tpdist = asset.tp * candle['distATR']
 
         self.datetime = candle['DateTime']
         self.entrytime =  candle['DateTime']
@@ -348,9 +351,9 @@ class Trade:
         self.signal = signal
         self.entry = entry
         self.exit = candle['Close']
-        self.sl = slprice
-        self.tp = tpprice
-        self.sldist = abs(entry - slprice)
+        self.sl = entry - sldist if signal == 'long' else entry + sldist
+        self.tp = entry + tpdist if signal == 'long' else entry - tpdist
+        self.sldist = sldist
         self.returns = candle['Close'] - entry
         self.spread = candle['Spread']
         self.commission_type = asset.commission
@@ -363,6 +366,7 @@ class Trade:
         self.low = candle['Low']
         self.candles = []
         self.onecandle = False
+        self.method = None
 
     def calculateSize(self, risk:float=None, balance:float=None, 
                       sldist:float=None) -> float:
@@ -461,6 +465,17 @@ class Trade:
             self.result -= self.calculateCommission()
 
         return self.result
+    
+    def tradeExited(self) -> None:
+
+        '''
+        Closes a trade and calculates all the final data.
+        '''
+        
+        self.calculateSize()
+        self.calculateReturns()
+        self.calculateCommission()
+        self.calculateResult()
 
     def to_dict(self):
 
@@ -487,6 +502,7 @@ class Trade:
             'TP': self.tp,
             'Return': self.calculateReturns(),
             'Result': self.calculateResult(),
+            'Method': self.method,
             'Spread': self.spread,
             'Commission': self.calculateCommission(),
             'CommissionStruc': self.asset.commission.to_dict(),
@@ -507,7 +523,8 @@ class BackTest(OHLC):
     Class used to carry out the backtest of the strategy.
     '''
     
-    config = BtConfig('2018-01-01', dt.date.today().strftime('%Y-%m-%d'), capital=10000.0, 
+    config = BtConfig((dt.date.today() - dt.timedelta(days=365*2)).strftime('%Y-%m-%d'), 
+                      dt.date.today().strftime('%Y-%m-%d'), capital=10000.0, 
                       use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                       max_size=10000000, commission=Commissions(), max_trades=3,
                       filter_ticker=True, filter_strat=False, reset_orders=True,
@@ -714,7 +731,7 @@ class BackTest(OHLC):
         '''
 
         # Check if the needed data is in the dataframe
-        self.data_df = self._newDf(df, needed_cols=['DateTime', 'Open', 'High', 'Low', 'Close', 'Spread', 'SLdist', 'TPdist'], 
+        self.data_df = self._newDf(df, needed_cols=['DateTime', 'Open', 'High', 'Low', 'Close', 'Spread', 'distATR'], 
                                    overwrite=True)
 
         # Initialize variables
@@ -738,9 +755,7 @@ class BackTest(OHLC):
 
                 candle = g[1].loc[i]
 
-                if candle['SLdist'] != candle['SLdist']:
-                    continue
-                if candle['TPdist'] != candle['TPdist']:
+                if candle['distATR'] != candle['distATR']:
                     continue
                 
                 # Check if we are between the backtest dates
@@ -765,8 +780,6 @@ class BackTest(OHLC):
                         if candle[f'{strat}Entry'] != 0 and trades_qty < self.config.max_trades:
 
                             asset = self.strategies[strat].assets[candle['Ticker']]
-                            sldist = candle['SLdist']
-                            tpdist = candle['TPdist']
 
                             # Long orders
                             if candle[f'{strat}Entry'] > 0:
@@ -791,9 +804,12 @@ class BackTest(OHLC):
                                                    (order.ticker != candle['Ticker']) or (order.strategy != strat)]
 
                                 # Define the new buy order
-                                trade = Trade(candle, 'long', self.strategies[strat], entry, entry - sldist, 
-                                                entry + tpdist, balance[-1], asset)
-                                if not entered and trade.entry * trade.size < self.currentCapital(balance[-1], open_trades):
+                                trade = Trade(candle, 'long', self.strategies[strat], entry, balance[-1])
+                                
+                                if not entered:
+                                    current_capital = self.currentCapital(balance[-1], open_trades)
+                                    if trade.entry * trade.size >= current_capital:
+                                        trade.calculateSize(balance=current_capital)
 
                                     # If market order execute it if not append to orders
                                     if asset.order_type == 'market':
@@ -824,9 +840,11 @@ class BackTest(OHLC):
                                                    (order.ticker != candle['Ticker']) or (order.strategy != strat)]
 
                                 # Define the new sell order
-                                trade = Trade(candle, 'short', self.strategies[strat], entry, entry + sldist, 
-                                                entry - tpdist, balance[-1], asset)
-                                if not entered and trade.entry * trade.size < self.currentCapital(balance[-1], open_trades):
+                                trade = Trade(candle, 'short', self.strategies[strat], entry, balance[-1])
+                                if not entered:
+                                    current_capital = self.currentCapital(balance[-1], open_trades)
+                                    if trade.entry * trade.size >= current_capital:
+                                        trade.calculateSize(balance=current_capital)
 
                                     # If market order execute it if not append to orders
                                     if asset.order_type == 'market':
@@ -848,6 +866,7 @@ class BackTest(OHLC):
                                 if order.signal == 'long':
 
                                     if order.entry <= candle['High'] + order.spread:
+                                        order.entry = order.entry if candle['Open'] < order.entry else candle['Open']
                                         order.entrytime = candle['DateTime']
                                         order.balance = balance[-1]
                                         open_trades.append(order)
@@ -865,6 +884,7 @@ class BackTest(OHLC):
                                 if order.signal == 'short':
 
                                     if order.entry >= candle['Low']:
+                                        order.entry = order.entry if candle['Open'] > order.entry else candle['Open']
                                         order.entrytime = candle['DateTime']
                                         order.balance = balance[-1]
                                         open_trades.append(order)
@@ -885,6 +905,7 @@ class BackTest(OHLC):
                                 if order.signal == 'long':
 
                                     if order.entry > candle['Low'] + order.spread:
+                                        order.entry = order.entry if candle['Open'] > order.entry else candle['Open']
                                         order.entrytime = candle['DateTime']
                                         order.balance = balance[-1]
                                         open_trades.append(order)
@@ -902,6 +923,7 @@ class BackTest(OHLC):
                                 if order.signal == 'short':
 
                                     if order.entry < candle['High']:
+                                        order.entry = order.entry if candle['Open'] < order.entry else candle['Open']
                                         order.entrytime = candle['DateTime']
                                         order.balance = balance[-1]
                                         open_trades.append(order)
@@ -942,6 +964,7 @@ class BackTest(OHLC):
 
                                 if trade.signal == 'short' and candle['High'] + trade.spread >= trade.sl: # High
                                     trade.exit = trade.sl if candle['Open'] < trade.sl else candle['Open']
+                                    trade.method = 'SL'
                                     exited = True
                                     if len(trade.candles) <= 1 and candle['Low'] + trade.spread <= trade.tp and \
                                         candle['High'] + trade.spread >= trade.sl:
@@ -949,6 +972,7 @@ class BackTest(OHLC):
 
                                 if trade.signal == 'long' and candle['Low'] <= trade.sl: # Low
                                     trade.exit = trade.sl if candle['Open'] > trade.sl else candle['Open']
+                                    trade.method = 'SL'
                                     exited = True
                                     if len(trade.candles) <= 1 and candle['High'] >= trade.tp and candle['Low'] <= trade.sl:
                                         trade.onecandle = True
@@ -958,6 +982,7 @@ class BackTest(OHLC):
 
                                 if trade.signal == 'short' and candle['Low'] + trade.spread <= trade.tp: #Low
                                     trade.exit = trade.tp if candle['Open'] > trade.tp else candle['Open']
+                                    trade.method = 'TP'
                                     exited = True
                                     if len(trade.candles) <= 1 and candle['Low'] + trade.spread <= trade.tp and \
                                         candle['High'] + trade.spread >= trade.sl:
@@ -965,6 +990,7 @@ class BackTest(OHLC):
 
                                 if trade.signal == 'long' and candle['High'] >= trade.tp: #High
                                     trade.exit = trade.tp if candle['Open'] < trade.tp else candle['Open']
+                                    trade.method = 'TP'
                                     exited = True
                                     if len(trade.candles) <= 1 and candle['High'] >= trade.tp and candle['Low'] <= trade.sl:
                                         trade.onecandle = True
@@ -972,10 +998,12 @@ class BackTest(OHLC):
                             # Check time limit
                             if not exited and trade.strategy.time_limit > 0 and len(trade.candles) >= trade.strategy.time_limit:
                                 trade.exit = candle['Close']
+                                trade.method = 'TimeLimit'
                                 exited = True
 
                             if exited:
                                 trade.exittime = candle['DateTime']
+                                trade.tradeExited()
                                 closed_trades.append(trade)
                                 date_result += trade.calculateResult()
                                 delete.append(trade)
@@ -998,14 +1026,17 @@ class BackTest(OHLC):
                                 # Exit Buy
                                 if candle[f'{strat}Exit'] == 1 and trade.signal == 'long':
                                     trade.exit = candle['Open']
+                                    trade.method = 'Exit'
                                     exited = True
                                 # Exit Sell
                                 elif candle[f'{strat}Exit'] == -1 and trade.signal == 'short':
                                     trade.exit = candle['Open'] + trade.spread
+                                    trade.method = 'Exit'
                                     exited = True
                                         
                                 if exited:
                                     trade.exittime = candle['DateTime']
+                                    trade.tradeExited()
                                     closed_trades.append(trade)
                                     date_result += trade.calculateResult()
                                     delete.append(trade)
@@ -1018,25 +1049,32 @@ class BackTest(OHLC):
             balance.append(balance[-1]+date_result)
 
         # Calculate and store final data
-        self.trades = self.tradesDF(closed_trades)
-        self.open_trades = pd.DataFrame([t.to_dict() for t in open_trades])
-        self.open_orders = pd.DataFrame([t.to_dict() for t in open_orders])
+        # self.trades = self.tradesDF(closed_trades)
         self.closed_trades = closed_trades
+        self.trades = self.tradesDF(pd.DataFrame(
+                    [{**t.to_dict(), **{'Trades':t}} for t in closed_trades]))
+        self.trades['StratName'] = self.trades['Strategy'].apply(lambda x: x['name'])
+        # self.trades['WeekDay'] = self.trades['EntryTime'].dt.day_name()
+        self.open_trades = pd.DataFrame(
+                    [{**t.to_dict(), **{'Trades':t}} for t in open_trades])
+        self.open_orders = pd.DataFrame(
+                    [{**t.to_dict(), **{'Trades':t}} for t in open_orders])
 
         return self.trades
 
     def tradesDF(self, trades:list) -> pd.DataFrame:
 
-        size = []
-        result = []
-        balance = [bt.config.capital]
-        for trade in trades:
-            trade.balance = balance[-1]
-            size.append(trade.calculateSize(balance=balance[-1]))
-            result.append(trade.calculateResult())
-            balance.append(balance[-1] + trade.result)
+        if not isinstance(trades, pd.DataFrame):
+            size = []
+            result = []
+            balance = [bt.config.capital]
+            for trade in trades:
+                trade.balance = balance[-1]
+                size.append(trade.calculateSize(balance=balance[-1]))
+                result.append(trade.calculateResult())
+                balance.append(balance[-1] + trade.result)
+            trades = pd.DataFrame([t.to_dict() for t in trades])
 
-        trades = pd.DataFrame([t.to_dict() for t in trades])
         if not trades.empty:
             trades['InitBalance'] = trades['Balance'].copy()
             trades['Balance'] = trades['Balance'] + trades['Result']
@@ -1046,10 +1084,55 @@ class BackTest(OHLC):
 
         return trades
 
+    def calculateBalance(self, trades:list=None, verbose:bool=True) -> pd.DataFrame:
+
+        if not isinstance(trades, list):
+            if self.trades.empty:
+                print('There are no trades to plot')
+                return None
+            trades = self.trades['Trades'].to_list()
+
+        trades = copy.deepcopy(trades)
+        balance = []
+        for t,trade in enumerate(trades):
+            result = []
+            prev_c = trade.candles[0]
+            for i in range(len(trade.candles)):
+                c = trade.candles[i]
+                if len(trade.candles) == 1:
+                    val = ((trade.exit - trade.entry) if trade.signal == 'long' \
+                        else (trade.entry - trade.exit)) * trade.size -trade.calculateCommission()
+                elif i == 0:
+                    val = ((c['Close'] - trade.entry) if trade.signal == 'long' \
+                        else (trade.entry - c['Close'])) * trade.size -trade.calculateCommission()
+                elif i == len(trade.candles)-1:
+                    val = ((trade.exit - prev_c['Close']) if trade.signal == 'long' \
+                        else (prev_c['Close'] - trade.exit)) * trade.size
+                else:
+                    val = ((c['Close'] - prev_c['Close']) if trade.signal == 'long' \
+                        else (prev_c['Close'] - c['Close'])) * trade.size
+
+                balance.append({'DateTime':c['DateTime'], 'DailyBalance': val})
+                result.append(balance[-1]['DailyBalance'])
+                prev_c = c
+            if verbose and sum(result) != trade.calculateResult():
+                print(t)
+                print(result, sum(result), trade.result)
+
+        balance = pd.DataFrame(balance).groupby('DateTime').agg('sum')
+        balance.reset_index(drop=False, inplace=True)
+        balance.loc[:,'Balance'] = balance['DailyBalance'].cumsum() + self.config.capital
+        balance.loc[:,'RetPct'] = balance['Balance'] / balance['Balance'].shift(1) - 1
+        balance.loc[:,'AccountPeak'] = balance['Balance'].cummax()
+        balance.loc[:,'AccountDD'] = 1 - balance['Balance']/balance['AccountPeak']
+
+        return balance
+
     def saveResult(self, file:str='TradesBacktested.xlsx', sheet:str='CompleteTrades'):
 
         writer = pd.ExcelWriter(file)
         self.trades.to_excel(writer, sheet_name=sheet, index=False)
+        self.calculateBalance().to_Excel(writer, sheet_name='Balance', index=False)
         writer.save()
 
     # def resultsToGoogle(self, sheetid:str, sheetrange:str):
@@ -1057,48 +1140,48 @@ class BackTest(OHLC):
     #     google = GoogleSheets(sheetid, secret_path=os.path.join('google_sheets','client_secrets.json'))
     #     google.appendValues(self.trades.values, sheetrange=sheetrange)
 
-    def btKPI(self, print_stats:bool=True):
+    def btKPI(self, df:pd.DataFrame=None, print_stats:bool=False) -> dict:
 
         days = np.busday_count(self.data_df['DateTime'].tolist()[0].date(), self.data_df['DateTime'].tolist()[-1].date())
-        
-        stats = {}
-        for strat in self.trades['Strategy'].apply(lambda x: x['name']).unique():
 
-            temp = self.trades.copy()
-            temp['Strategy'] = temp['Strategy'].apply(lambda x: x['name'])
-            temp = temp[temp['Strategy'] == strat]
+        if not isinstance(df, pd.DataFrame):
+            df = self.trades
             
-            temp['Ret'] = temp['Result']/(temp['SLdist']*temp['Size']) * temp['Risk']
-            temp['CumRet'] = (1+temp['Ret']).cumprod()
+        temp = df.copy()        
+        temp['Ret'] = temp['Result']/(temp['SLdist']*temp['Size']) * temp['Risk']
+        temp['CumRet'] = (1+temp['Ret']).cumprod()
 
-            # Backtest analysis
-            winrate = len(temp['Return'][temp['Return'] > 0.0])/len(temp['Return'])
-            avg_win = temp['Ret'][temp['Ret'] > 0].mean()
-            avg_loss = temp['Ret'][temp['Ret'] < 0].mean()
-            expectancy = (winrate*avg_win - (1-winrate)*abs(avg_loss))
+        # Backtest analysis
+        winrate = len(temp['Return'][temp['Return'] > 0.0])/len(temp['Return'])
+        avg_win = temp['Ret'][temp['Ret'] > 0].mean()
+        avg_loss = temp['Ret'][temp['Ret'] < 0].mean()
+        expectancy = (winrate*avg_win - (1-winrate)*abs(avg_loss))
 
-            stats[strat] = {
-                'Winrate': winrate,
-                'AvgWin': avg_win,
-                'AvgLoss': avg_loss,
-                'Expectancy': expectancy,
-                'Days': days,
-                'Frequency': len(temp)/days * 100//1/100,
-                'Kelly': (winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win,
-                'MaxDD': temp['AccountDD'].max()
-            }
+        stats = {
+            'Winrate': winrate,
+            'AvgWin': avg_win,
+            'AvgLoss': avg_loss,
+            'Expectancy': expectancy,
+            'Days': days,
+            'Frequency': len(temp)/days * 100//1/100,
+            'Kelly': (winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win,
+            'Avg risk': temp['Risk'].mean(),
+            'BtBalance': temp['Balance'].tolist()[-1],
+            'MaxDD': temp['AccountDD'].max(),
+            '#trades': len(temp)
+        }
 
-            if print_stats:
-                print(f"Winrate: {winrate :%}") # With two decimal spaces and commas for the thousands :,.2f
-                print(f"Avg. Win: {avg_win :%}")
-                print(f"Avg. Loss: {avg_loss :%}")
-                print(f"Expectancy: {expectancy :%}")
-                print(f"Trading frequency: {stats[strat]['Frequency']}")
-                #print(f"Monthly Expectancy: {((1 + expectancy*len(trades)/days)**(20) - 1) :%}")
-                #print(f"Anual Expectancy: {((1 + expectancy*len(trades)/days)**(52*5) - 1) :%}")
-                print(f"Kelly: {stats[strat]['Kelly'] :%}")
-                print(f"Backtest Max. DD: {stats[strat]['MaxDD'] :%}")
-                # print(f'Ulcer Index: {(((trades['AccountDD'] * 100)**2).sum()/len(trades['AccountDD']))**(1/2) * 100//1/100}')
+        if print_stats:
+            print(f"Winrate: {winrate :%}") # With two decimal spaces and commas for the thousands :,.2f
+            print(f"Avg. Win: {avg_win :%}")
+            print(f"Avg. Loss: {avg_loss :%}")
+            print(f"Expectancy: {expectancy :%}")
+            print(f"Trading frequency: {stats[strat]['Frequency']}")
+            #print(f"Monthly Expectancy: {((1 + expectancy*len(trades)/days)**(20) - 1) :%}")
+            #print(f"Anual Expectancy: {((1 + expectancy*len(trades)/days)**(52*5) - 1) :%}")
+            print(f"Kelly: {stats[strat]['Kelly'] :%}")
+            print(f"Backtest Max. DD: {stats[strat]['MaxDD'] :%}")
+            # print(f'Ulcer Index: {(((trades['AccountDD'] * 100)**2).sum()/len(trades['AccountDD']))**(1/2) * 100//1/100}')
 
         return stats
 
@@ -1195,22 +1278,33 @@ class BackTest(OHLC):
 
         return trades
 
-    def btPlot(self, log:bool=True):
+    def btPlot(self, balance:bool=True, log:bool=True):
 
         if self.trades.empty:
             print('There are no trades to plot')
             return None
+        
+        if balance:
+            balance = self.calculateBalance(verbose=False)
+        else:
+            balance = self.trades.copy()
+
+        if 'DateTime' not in balance and 'ExitTime' in balance:
+            balance['DateTime'] = balance['ExitTime'].copy()
 
         # Plot Backtest results
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.0,
                             row_heights=[3,1],
                             specs=[[{'secondary_y': True}],[{'secondary_y': False}]])
 
-        fig.add_trace(go.Scatter(x=self.trades['ExitTime'], y=self.trades['Balance'], name='Balance'), 
+        fig.add_trace(go.Scatter(x=balance['DateTime'], y=balance['Balance'], name='Balance'), 
                       row=1, col=1, secondary_y=False)
-        fig.add_trace(go.Scatter(x=self.trades['ExitTime'], y=self.trades['AccountDD'] * 10000//1/100, 
+        fig.add_trace(go.Scatter(x=balance['DateTime'], y=balance['AccountDD'] * 10000//1/100, 
                                  fill='tozeroy', name='DrawDown'), row=1, col=1, secondary_y=True)
-        self.data_df
+        fig.add_trace(go.Scatter(x=balance['DateTime'], y=balance['AccountPeak'], name='MaxBalance'), 
+                      row=1, col=1, secondary_y=False)
+        
+        # Add Buy & Hold comparison
         fig.add_trace(go.Scatter(x=self.data_df['DateTime'], 
                       y=self.data_df['Close']/self.data_df['Close'].iloc[0]*self.config.capital, 
                       name='Buy & Hold'), 
@@ -1222,11 +1316,11 @@ class BackTest(OHLC):
         if log:
             fig.update_yaxes(type="log", row=1, col=1, secondary_y=False)
 
-        fig.add_trace(go.Scatter(x=self.trades['ExitTime'][self.trades['RetPct'] > 0.0],
-                                 y=self.trades['RetPct'][self.trades['RetPct'] > 0.0] * 10000//1/100, 
+        fig.add_trace(go.Scatter(x=balance['DateTime'][balance['RetPct'] > 0.0],
+                                 y=balance['RetPct'][balance['RetPct'] > 0.0] * 10000//1/100, 
                                  name='Wins', marker_color='green', mode='markers'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=self.trades['ExitTime'][self.trades['RetPct'] <= 0.0], 
-                                 y=self.trades['RetPct'][self.trades['RetPct'] <= 0.0] * 10000//1/100, 
+        fig.add_trace(go.Scatter(x=balance['DateTime'][balance['RetPct'] <= 0.0], 
+                                 y=balance['RetPct'][balance['RetPct'] <= 0.0] * 10000//1/100, 
                                  name='Losses', marker_color='red', mode='markers'), row=2, col=1)
 
         fig.update_yaxes(title_text='Return (%)', row=2, col=1)
@@ -1248,185 +1342,64 @@ class BackTest(OHLC):
 
         fig.show()
     
-    def tickerStats(self, plot:bool=False, print_stats:bool=False, print_comparison:bool=True):
+    def stats(self, column:str='Ticker', plot:bool=False, 
+                    print_stats:bool=False) -> pd.DataFrame:
 
-        pair_stats = []
+        self.stats_dict = {}
         pairs = []
-        for g in self.trades.groupby('Ticker'):
+        for g in self.trades.groupby(column):
 
             temp = g[1]
-            temp.reset_index(drop=True, inplace=True)
-            ret = temp['Return'].tolist()
-            risk = temp['Risk'].tolist()
-            entry = temp['Entry'].tolist()
-            balance = [self.config['capital']]
-            result = []
-            pct_ret = []
-            size = []
-            for i in range(len(temp)):
-                size.append(balance[-1]*risk[i]/(temp['SLdist'].tolist()[i]))
-                result.append(size[-1]*(ret[i] - self.config['commission']))
-                pct_ret.append(result[-1]/balance[-1])
-                balance.append(balance[-1]+result[-1])
+            temp = self.tradesDF(trades=temp['Trades'].tolist())
 
-            temp.loc[:,'Size'] = size
-            temp.loc[:,'Balance'] = balance[1:]
-            temp.loc[:,'Result'] = result
-            temp.loc[:,'%ret'] = pct_ret
-            temp.loc[:,'AccountPeak'] = temp['Balance'].cummax()
-            temp.loc[:,'AccountDD'] = 1 - temp['Balance']/temp['AccountPeak']
-
-            winrate = len(temp[temp['Result'] > 0])/len(temp)
-            avg_win = temp['%ret'][temp['%ret'] > 0].mean()
-            avg_loss = temp['%ret'][temp['%ret'] < 0].mean()
-
-            if print_stats:
-                print(f'{g[0]} ---------------------------------------------')
-                print('')
-                print('Winrate: ',winrate * 10000//1/100,'%')
-                print('Avg. Win: ',avg_win * 10000//1/100,'%')
-                print('Avg. Loss: ',avg_loss * 10000//1/100,'%')
-                print('Expectancy: ',(winrate*avg_win - (1-winrate)*abs(avg_loss)) * 10000//1/100,'%')
-                print('Kelly: ',(winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win * 10000//1/100,'%')
-                print('Max. DD: ', temp['AccountDD'].max() * 10000//1/100, '%')
-
+            self.stats_dict[g[0]] = self.btKPI(df=temp, print_stats=print_stats)
+            
             if plot:
                 fig = make_subplots(specs=[[{'secondary_y': True}]])
-                fig.add_trace(go.Scatter(x=temp['Date'],y=temp['Balance'], name='Balance'), secondary_y=False)
-                fig.add_trace(go.Scatter(x=temp['Date'], y=temp['AccountDD'] * 10000//1/100, fill='tozeroy', name='DrawDown'), secondary_y=True)
+                fig.add_trace(go.Scatter(x=temp['Date'],y=temp['Balance'], name='Balance'), 
+                              secondary_y=False)
+                fig.add_trace(go.Scatter(x=temp['Date'], y=temp['AccountDD'] * 10000//1/100, 
+                                         fill='tozeroy', name='DrawDown'), secondary_y=True)
 
                 fig.update_xaxes(title_text='Date')
                 fig.update_yaxes(title_text='Return ($)', secondary_y=False)
                 fig.update_yaxes(title_text='DrawDown (%)', secondary_y=True)
-                fig.update_layout(title=f"Account balance {self.config['capital'] + temp['Result'].sum()*100//1/100}$", 
+                fig.update_layout(title=f"{g[0]} account balance {self.config.capital + temp['Result'].sum()*100//1/100}$", 
                                 autosize=False,width=1000,height=700,)
                 fig.show()
 
-            pair_stats.append({
-                'Ticker': g[0],
-                'Winrate': winrate,
-                'Avg. Win': avg_win,
-                'Avg. Loss': avg_loss,
-                'Expectancy': (winrate*avg_win - (1-winrate)*abs(avg_loss)),
-                'Kelly': (winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win,
-                'Avg risk': temp['Risk'].mean(),
-                'BtBalance': temp['Balance'].tolist()[-1],
-                'MaxDD': temp['AccountDD'].max(),
-                '#trades': len(temp)
-            })
             pairs.append(g[0])
         
-        for strat in self.pairs_config:
-            for pair in self.pairs_config[strat]:
-                if pair not in pairs:
-                    pairs.append(pair)
-                    pair_stats.append({
-                        'Ticker': pair,
-                        'Winrate': float('nan'),
-                        'Avg. Win': 0.0,
-                        'Avg. Loss': 0.0,
-                        'Expectancy': 0.0,
-                        'Kelly': 0.0,
-                        'Avg risk': 0.0,
-                        'BtBalance': self.config['capital'],
-                        'MaxDD': 0.0
-                    })
+        # for strat in self.pairs_config:
+        #     for pair in self.pairs_config[strat]:
+        #         if pair not in pairs:
+        #             pairs.append(pair)
+        #             pair_stats.append({
+        #                 'Ticker': pair,
+        #                 'Winrate': float('nan'),
+        #                 'Avg. Win': 0.0,
+        #                 'Avg. Loss': 0.0,
+        #                 'Expectancy': 0.0,
+        #                 'Kelly': 0.0,
+        #                 'Avg risk': 0.0,
+        #                 'BtBalance': self.config['capital'],
+        #                 'MaxDD': 0.0
+        #             })
 
         # Comparison of pairs and total
-        stats_df = pd.DataFrame(pair_stats)
+        stats_df = pd.DataFrame(self.stats_dict).T
         stats_df.sort_values(by=['Kelly'], ascending=False, inplace=True)
-        stats_df.reset_index(drop=True, inplace=True)
-        if print_comparison:
-            print(stats_df)
 
         return stats_df
-
-    def weekdayStats(self, plot:bool=False, print_stats:bool=True):
-        
-        self.trades['WeekDay'] = self.trades['EntryTime'].dt.day_name()
-        day_stats = []
-        for day in ['Monday','Tuesday','Wednesday','Thursday','Friday']:
-
-            temp = self.trades.groupby('WeekDay').get_group(day)
-            temp.reset_index(drop=True, inplace=True)
-            ret = temp['Return'].tolist()
-            risk = temp['Risk'].tolist()
-            entry = temp['Entry'].tolist()
-            balance = [self.config['capital']]
-            result = []
-            pct_ret = []
-            size = []
-            for i in range(len(temp)):
-                size.append(balance[-1]*risk[i]/(temp['SLdist'].tolist()[i]))
-                result.append(size[-1]*(ret[i] - self.config['commission']))
-                pct_ret.append(result[-1]/balance[-1])
-                balance.append(balance[-1]+result[-1])
-
-            temp.loc[:,'Size'] = size
-            temp.loc[:,'Balance'] = balance[:-1]
-            temp.loc[:,'Result'] = result
-            temp.loc[:,'%ret'] = pct_ret
-            temp.loc[:,'AccountPeak'] = temp['Balance'].cummax()
-            temp.loc[:,'AccountDD'] = 1 - temp['Balance']/temp['AccountPeak']
-
-            winrate = len(temp[temp['Result'] > 0])/len(temp)
-            avg_win = temp['%ret'][temp['%ret'] > 0].mean()
-            avg_loss = temp['%ret'][temp['%ret'] < 0].mean()
-
-            if print_stats:
-                print(f'{day} ---------------------------------------------')
-                print('')
-                print('Winrate: ',winrate * 10000//1/100,'%')
-                print('Avg. Win: ',avg_win * 10000//1/100,'%')
-                print('Avg. Loss: ',avg_loss * 10000//1/100,'%')
-                print('Expectancy: ',(winrate*avg_win - (1-winrate)*abs(avg_loss)) * 10000//1/100,'%')
-                print('Kelly: ',(winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win * 10000//1/100,'%')
-                print('Max. DD: ', temp['AccountDD'].max() * 10000//1/100, '%')
-
-            if plot:
-                fig = make_subplots(specs=[[{'secondary_y': True}]])
-                fig.add_trace(go.Scatter(x=temp['Date'],y=temp['Balance'], name='Balance'), secondary_y=False)
-                fig.add_trace(go.Scatter(x=temp['Date'], y=temp['AccountDD'] * 10000//1/100, fill='tozeroy', name='DrawDown'), secondary_y=True)
-
-                fig.update_xaxes(title_text='Date')
-                fig.update_yaxes(title_text='Return ($)', secondary_y=False)
-                fig.update_yaxes(title_text='DrawDown (%)', secondary_y=True)
-                fig.update_layout(title=f"Account balance {self.config['capital'] + temp['Result'].sum()*100//1/100}$", 
-                                autosize=False,width=1000,height=700,)
-                fig.show()
-
-            day_stats.append({
-                'Weekday': day,
-                'Winrate': winrate,
-                'Avg. Win': avg_win,
-                'Avg. Loss': avg_loss,
-                'Expectancy': (winrate*avg_win - (1-winrate)*abs(avg_loss)),
-                'Kelly': (winrate*avg_win - (1-winrate)*abs(avg_loss))/avg_win,
-                'Avg risk': temp['Risk'].mean(),
-                'BtBalance':temp['Balance'].tolist()[-1],
-                'MaxDD':temp['AccountDD'].max()
-            })
-
-
-
-        # Comparison of pairs and total
-        stats_df = pd.DataFrame(day_stats)
-        stats_df.sort_values(by=['Kelly'], ascending=False, inplace=True)
-        stats_df.reset_index(drop=True, inplace=True)
-        if print_stats:
-            print(stats_df)
-
-        return stats_df
-
 
 
 if __name__ == '__main__':
 
     import yfinance as yf
 
-    config = BtConfig('2018-01-01', (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d'), capital=10000.0, 
+    config = BtConfig('2010-01-01', dt.date.today().strftime('%Y-%m-%d'), capital=5000.0,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
                       use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
-                      max_size=10000000, commission=Commissions(), max_trades=100, 
+                      max_size=10000000, commission=Commissions(), max_trades=1000, 
                       filter_ticker=False, filter_strat=False, reset_orders=True,
                       continue_onecandle=False, offset_aware=False)
 
@@ -1469,62 +1442,67 @@ if __name__ == '__main__':
             'XAG_USD': AssetConfig(name='XAG_USD', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000000, commission=Commissions('pershare', 1.0, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
     }
+    {'SP500': '500.PA', 'NASDAQ': 'ANX.PA', 'STOXX': 'C50.PA', 'MSCI World': 'CW8.PA'}
     strategies = {
-        'detrended': StrategyConfig(name='DeTrend', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'momentum': StrategyConfig(name='MOM', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'detrended': StrategyConfig(name='DeTrend', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'momentum': StrategyConfig(name='MOM', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'modFisher': StrategyConfig(name='MFish', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            '500.PA': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'fibEnvelopes': StrategyConfig(name='FiEnv', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'slopeStrat': StrategyConfig(name='Slo', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'robBookerStrat': StrategyConfig(name='Book', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'mandiStrat': StrategyConfig(name='Mandi', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'stochRsiStrat': StrategyConfig(name='SRSI', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'maZone': StrategyConfig(name='MAZ', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'fibEnvelopes': StrategyConfig(name='FiEnv', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'slopeStrat': StrategyConfig(name='Slo', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'robBookerStrat': StrategyConfig(name='Book', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'mandiStrat': StrategyConfig(name='Mandi', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'stochRsiStrat': StrategyConfig(name='SRSI', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'maZone': StrategyConfig(name='MAZ', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'paraSar': StrategyConfig(name='PARA', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            '500.PA': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'trendInten': StrategyConfig(name='TI', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            '500.PA': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
-        'rsiNeutrality': StrategyConfig(name='RSINeu', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'rsiNeutrality': StrategyConfig(name='RSINeu', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'catapultTrend': StrategyConfig(name='Cata', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            '500.PA': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'turtlesBreakout': StrategyConfig(name='TB', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'trendContinuation': StrategyConfig(name='TC', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'kamaTrend': StrategyConfig(name='KAMA', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
-        'atrExt': StrategyConfig(name='ATRE', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'indexPullback': StrategyConfig(name='IPB', assets={
-            'SPY': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
+        # 'trendContinuation': StrategyConfig(name='TC', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'kamaTrend': StrategyConfig(name='KAMA', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
+        # 'atrExt': StrategyConfig(name='ATRE', assets={
+        #    '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'indexPullback': StrategyConfig(name='IPB', assets={
+        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
     }
+
+    broker = 'degiro'
+    if broker == 'degiro':
+        dg = DeGiro('OneMade','Onemade3680')
 
     # Prepare data needed for backtest
     signals = Signals(backtest=True, errors=False)
@@ -1532,39 +1510,45 @@ if __name__ == '__main__':
     total_data = []
     data = {}
     complete = []
-    for strat in strategies:
+    if len(data) <= 0:
+        for strat in strategies:
 
-        if strat not in dir(signals):
-            print(f'{strat} not between the defined signals.')
-            continue
-        signal = getattr(signals, strat)
+            if strat not in dir(signals):
+                print(f'{strat} not between the defined signals.')
+                continue
+            signal = getattr(signals, strat)
 
-        for t,c in strategies[strat].assets.items():
+            for t,c in strategies[strat].assets.items():
 
-            if t not in data:
-                temp = yf.Ticker(t).history(period='5y',interval='1d')
-            else:
-                temp = data[t].copy()
+                if t not in data:
+                    if broker == 'yfinance':
+                        temp = yf.Ticker(t).history(period='5y',interval='1d')
+                    elif broker == 'degiro':
+                        products = dg.searchProducts('LU1681048804')
+                        temp = dg.getCandles(Product(products[0]).id, interval=IntervalType.Max)
+                else:
+                    temp = data[t].copy()
 
-            temp.loc[:,'SLdist'] = strategies[strat].assets[t].sl * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
-            temp.loc[:,'TPdist'] = strategies[strat].assets[t].tp * indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
-            temp.loc[:,'Ticker'] = [t]*len(temp)
-            temp.loc[:,'Date'] = pd.to_datetime(temp.index)
-            
-            if 'Volume' not in temp.columns:
-                temp['Volume'] = [0]*len(temp)
+                temp.loc[:,'distATR'] = indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
+                temp.loc[:,'SLdist'] = temp['distATR'] * c.sl
+                temp.loc[:,'Ticker'] = [t]*len(temp)
+                temp.loc[:,'Date'] = pd.to_datetime(temp.index)
+                
+                if 'Volume' not in temp.columns:
+                    temp['Volume'] = [0]*len(temp)
 
-            temp = signal(df=temp, strat_name=strat)
-            if t in data:
-                for c in temp:
-                    if c not in data[t]:
-                        data[t][c] = temp[c]
-            else:
-                data[t] = temp.copy()
+                temp = signal(df=temp, strat_name=strat)
+                if t in data:
+                    for c in temp:
+                        if c not in data[t]:
+                            data[t][c] = temp[c]
+                else:
+                    data[t] = temp.copy()
 
     # Prepare data
     df = pd.concat([data[t] for t in data], ignore_index=True)
-    df.rename(columns={'Date':'DateTime'}, inplace=True)
+    if 'DateTime' not in df.columns:
+        df.rename(columns={'Date':'DateTime'}, inplace=True)
     df.sort_values('DateTime', inplace=True)
     df.loc[:,'DateTime'] = pd.to_datetime(df['DateTime'], unit='s')
     if df['DateTime'].iloc[0].tzinfo != None:
@@ -1584,7 +1568,7 @@ if __name__ == '__main__':
     trades = bt.backtest(df=total_data)
 
     bt.btPlot(log=True)
-    df = pd.DataFrame(bt.btKPI(print_stats=False)).T
+    stats = bt.stats(column='StratName')
 
     complete.append(trades[trades['OneCandle'] == False])
 
