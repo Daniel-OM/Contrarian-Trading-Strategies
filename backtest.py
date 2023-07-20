@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 from signals import Signals
 from indicators import OHLC, Indicators
 #from google_sheets.google_sheets import GoogleSheets
-from degiroapi.degiro import DeGiro, Product, IntervalType
+from degiro import DeGiro, Product, IntervalType
 
 
 
