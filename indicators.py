@@ -3413,3 +3413,5 @@ if __name__ == '__main__':
     indicator = Indicators(raw)
     
     data = indicator.rsi()
+    data = indicator.bollingerBands(n=5, desvi=0.5)
+

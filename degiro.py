@@ -97,10 +97,6 @@ class ResolutionType:
         else:
             raise ValueError('Not a valid resolution.')
 
-
-
-
-
 class Product:
 
     def __init__(self, product):
@@ -916,3 +912,4 @@ if __name__ == '__main__':
     data = dg.getCandles(Product(products[0]), interval=IntervalType.Max)
     products = dg.searchProducts('Amundi Nasdaq-100') # dg.searchProducts('LU1681038243')
     data = dg.getCandles(Product(products[0]), interval=IntervalType.Max)
+    products = dg.searchProducts('SPY') # dg.searchProducts('LU1681038243')

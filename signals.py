@@ -5231,7 +5231,7 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
         return self.ohlc_df
     
     def indexPullback(self,df:pd.DataFrame=None, n:int=200, u:int=7, d:int=5, 
-                      strat_name:str='IdxPull', exit_signal:bool=False) -> pd.DataFrame: 
+                      strat_name:str='IdxPull', exit_signal:bool=True) -> pd.DataFrame: 
         
         '''
         Buy when si between the moving averages of the Highs and the Lows after being above 
@@ -5292,6 +5292,349 @@ class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, Cont
 
         return self.ohlc_df
     
+    def goldCorr(self,df:pd.DataFrame=None, n:int=2, lower:float=90, upper:float=10,
+                strat_name:str='GoldCorr', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols+['GoldClose'], overwrite=True)
+        
+        df = self.indicators.rsi(n=2, method='s', datatype='Close', 
+                                dataname='RSI', new_df=df)
+        df = self.indicators.movingAverage(n=10, method='s', datatype='GoldClose', 
+                                            dataname='SMA10', new_df=df)
+        df = self.indicators.movingAverage(n=50, method='s', datatype='GoldClose', 
+                                            dataname='SMA50', new_df=df)
+        df = self.indicators.movingAverage(n=200, method='s', datatype='GoldClose', 
+                                            dataname='SMA200', new_df=df)
+        
+        short_condition = (df['RSI'] >= upper) & (df['GoldClose'] >= df['SMA10']) & \
+                        (df['GoldClose'] >= df['SMA50']) & (df['SMA50'] < df['SMA200'])
+        long_condition = (df['RSI'] <= lower) & (df['GoldClose'] <= df['SMA10']) & \
+                        (df['GoldClose'] <= df['SMA50']) & (df['SMA50'] > df['SMA200'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df[self._renameEntry(strat_name)].shift(2) > 0), 1,
+                        np.where((df[self._renameEntry(strat_name)].shift(2) < 0), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+    def volatStoch(self,df:pd.DataFrame=None, n:int=14, lower:float=75, upper:float=25,
+                    v_level:float=1, strat_name:str='VolS', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols+['Volume'], overwrite=True)
+        
+        df = self.indicators.stochasticOscillator(n=n, method='s', 
+                                                dataname='SO', new_df=df)
+        df = self.indicators.bollingerBands(n=20, method='s', desvi=0.5, datatype='Close', 
+                                            dataname='BB', new_df=df)
+        
+        short_condition = (df['BBW'] > v_level) & (df['Volume'] < df['Volume'].shift(1)) & \
+                        (df['Open'] >= df['Open'].shift(1)) & (df['SOK'] >= upper)
+        long_condition = (df['BBW'] > v_level) & (df['Volume'] < df['Volume'].shift(1)) & \
+                        (df['Open'] <= df['Open'].shift(1)) & (df['SOK'] <= lower)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df[self._renameEntry(strat_name)].shift(1) > 0), 1,
+                        np.where((df[self._renameEntry(strat_name)].shift(1) < 0), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+    def dailyPB(self,df:pd.DataFrame=None, strat_name:str='DPB', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols+['DateTime'], overwrite=True)
+        
+        short_condition = (df['Close'] >= df['Open'].shift(3)) & \
+                        (df['Low'].shift(4) >= df['Close'].shift(7)) & \
+                        (df['Open'].shift(4) >= df['Open'].shift(8)) & \
+                        (df['DateTime'].dt.dayofweek != 3)
+        long_condition = (df['Close'] <= df['Open'].shift(3)) & \
+                        (df['Low'].shift(4) <= df['Close'].shift(7)) & \
+                        (df['Open'].shift(4) <= df['Open'].shift(8)) & \
+                        (df['DateTime'].dt.dayofweek != 3)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'] > df['Open']), 1,
+                        np.where((df['Close'] < df['Open']), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+    def volatPB(self,df:pd.DataFrame=None, n:int=14, v_level:float=0, 
+                   strat_name:str='VolPB', exit_signal:bool=True) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols+['Volume'], overwrite=True)
+        
+        df = self.indicators.bollingerBands(n=n, method='s', desvi=0.5, datatype='Close', 
+                                            dataname='BB', new_df=df)
+        
+        short_condition = (df['BBW'] > v_level) & (df['High'] >= df['Open'].shift(1)) & \
+                        (df['High'].shift(1) >= df['Low'].shift(5)) & \
+                        (df['DateTime'].dt.dayofweek != 1)
+        long_condition = (df['BBW'] > v_level) & (df['Low'] <= df['Open'].shift(1)) & \
+                        (df['Low'].shift(1) <= df['High'].shift(5)) & \
+                        (df['DateTime'].dt.dayofweek != 1)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df[self._renameEntry(strat_name)].shift(1) > 0), 1,
+                        np.where((df[self._renameEntry(strat_name)].shift(1) < 0), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+    def pullbackBounce(self,df:pd.DataFrame=None, strat_name:str='PBB', exit_signal:bool=False
+                    ) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+        short_condition = (df['Close'].shift(2) >= df['Low'].shift(3)) & \
+                        (df['Close'].shift(4) < df['Open'].shift(7)) & \
+                        (df['Close'] < df['Close'].shift(1)) & \
+                        (df['Close'].shift(1) < df['Close'].shift(2)) & \
+                        (df['Open'].shift(4) < df['High'].shift(6))
+        long_condition = (df['Close'].shift(2) <= df['High'].shift(3)) & \
+                        (df['Close'].shift(4) > df['Open'].shift(7)) & \
+                        (df['Close'] > df['Close'].shift(1)) & \
+                        (df['Close'].shift(1) > df['Close'].shift(2)) & \
+                        (df['Open'].shift(4) > df['Low'].shift(6))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'] > df['Open']), 1,
+                        np.where((df['Close'] < df['Open']), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+    def wednesdayStrat(self,df:pd.DataFrame=None, strat_name:str='WedBO', 
+                       exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the RSI is below the 90 level and the gold is making a pullback.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Averages.
+        lower: float
+            Lower limit.
+        upper: float
+            Upper limit.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols+['Volume'], overwrite=True)
+        
+        short_condition = (df['High'] < df['Close'].shift(5)) & \
+                        (df['Open'].shift(3) < df['High'].shift(9)) & \
+                        (df['Open'].shift(7) < df['Close'].shift(8)) & \
+                        (df['DateTime'].dt.dayofweek != 2)
+        long_condition = (df['Low'] > df['Close'].shift(5)) & \
+                        (df['Open'].shift(3) > df['Low'].shift(9)) & \
+                        (df['Open'].shift(7) > df['Close'].shift(8)) & \
+                        (df['DateTime'].dt.dayofweek != 2)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+
+        df[self._renameEntry(strat_name)] = np.where(exe_condition.shift(self.shift) & \
+                                  long_condition.shift(self.shift), 1,
+                        np.where(exe_condition.shift(self.shift) & \
+                                short_condition.shift(self.shift), -1, 
+                        0))
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df[self._renameEntry(strat_name)].shift(1) > 0), 1,
+                        np.where((df[self._renameEntry(strat_name)].shift(1) < 0), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+    
+
+
+
 def plotSignals(df:pd.DataFrame, indicators:list=[]) -> None:
 
     rows = 1

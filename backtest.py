@@ -194,7 +194,7 @@ class BtConfig:
     '''
 
     def __init__(self, init_date:str=None, final_date:str=None, capital:float=10000.0,
-                use_sl:bool=True, use_tp:bool=True, time_limit:int=365,
+                monthly_add:float=0, use_sl:bool=True, use_tp:bool=True, time_limit:int=365,
                 min_size:float=1, max_size:float=10000000, commission:Commissions=None,
                 max_trades:int=3, filter_ticker:bool=True, filter_strat:bool=False,
                 reset_orders:bool=True, continue_onecandle=True, offset_aware:bool=False
@@ -211,6 +211,8 @@ class BtConfig:
             Date to end the backtest. Must be in format: YYYY-MM-DD.
         capital: float
             Starting capital for the backtest. Default is 10000.
+        monthly_add: float
+            Quantity to add to the balance every month.
         use_sl: bool
             True to use fixed SL. Default is True.
         use_tp: bool
@@ -251,6 +253,7 @@ class BtConfig:
         self.init_date = self._dateFormat(init_date, offset_aware)
         self.final_date = self._dateFormat(final_date, offset_aware)
         self.capital = capital
+        self.monthly_add = monthly_add
         self.use_sl = use_sl
         self.use_tp = use_tp
         self.time_limit = time_limit
@@ -301,6 +304,7 @@ class BtConfig:
         
         return {
             'capital': self.capital,
+            'monthly': self.monthly_add,
             'init_date': self.init_date,
             'final_date': self.final_date,
             'use_sl': self.use_sl,
@@ -309,6 +313,7 @@ class BtConfig:
             'min_size': self.min_size,
             'max_size': self.max_size,
             'commission': self.commission,
+            'maxtrades': self.max_trades,
         }
 
 class Trade:
@@ -524,7 +529,7 @@ class BackTest(OHLC):
     '''
     
     config = BtConfig((dt.date.today() - dt.timedelta(days=365*2)).strftime('%Y-%m-%d'), 
-                      dt.date.today().strftime('%Y-%m-%d'), capital=10000.0, 
+                      dt.date.today().strftime('%Y-%m-%d'), capital=10000.0, monthly_add=200, 
                       use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                       max_size=10000000, commission=Commissions(), max_trades=3,
                       filter_ticker=True, filter_strat=False, reset_orders=True,
@@ -735,6 +740,7 @@ class BackTest(OHLC):
                                    overwrite=True)
 
         # Initialize variables
+        last_date = None
         open_trades = []
         open_orders = []
         closed_trades = []
@@ -749,6 +755,7 @@ class BackTest(OHLC):
         for g in self.data_df.groupby('DateTime'):
           
             date_result = 0
+            current_date = g[0]
 
             # Iterate for each asset in this DateTime
             for i in g[1].index:
@@ -761,6 +768,11 @@ class BackTest(OHLC):
                 # Check if we are between the backtest dates
                 if candle['DateTime'] < self.config.init_date or candle['DateTime'] > self.config.final_date:
                     continue
+
+                # Add the monthly add if greater than 0 and the month has changed
+                if config.monthly_add > 0 and last_date != None and \
+                    last_date.month != current_date.month:
+                    balance[-1] = balance[-1] + config.monthly_add
                     
                 # Look for entries
                 if len(self.entries) > 0:
@@ -1044,6 +1056,7 @@ class BackTest(OHLC):
                     for d in delete:
                         open_trades.remove(d)
 
+                last_date = copy.deepcopy(current_date)
                 prev_candle[candle['Ticker']] = candle
 
             balance.append(balance[-1]+date_result)
@@ -1068,11 +1081,16 @@ class BackTest(OHLC):
             size = []
             result = []
             balance = [bt.config.capital]
+            last_date = None
             for trade in trades:
+                if config.monthly_add > 0 and last_date != None and \
+                    trade.datetime.month != last_date.month:
+                    balance[-1] = balance[-1] + config.monthly_add
                 trade.balance = balance[-1]
                 size.append(trade.calculateSize(balance=balance[-1]))
                 result.append(trade.calculateResult())
                 balance.append(balance[-1] + trade.result)
+                last_date = trade.datetime
             trades = pd.DataFrame([t.to_dict() for t in trades])
 
         if not trades.empty:
@@ -1121,7 +1139,12 @@ class BackTest(OHLC):
 
         balance = pd.DataFrame(balance).groupby('DateTime').agg('sum')
         balance.reset_index(drop=False, inplace=True)
+        balance.loc[:,'Added'] = np.where(balance['DateTime'].dt.month != \
+                                          balance['DateTime'].shift(1).dt.month, 
+                                          self.config.monthly_add, 0)
+        balance.loc[:,'Added'] = balance['Added'].cumsum()
         balance.loc[:,'Balance'] = balance['DailyBalance'].cumsum() + self.config.capital
+        balance.loc[:,'Balance'] = balance['Balance'] + balance['Added']
         balance.loc[:,'RetPct'] = balance['Balance'] / balance['Balance'].shift(1) - 1
         balance.loc[:,'AccountPeak'] = balance['Balance'].cummax()
         balance.loc[:,'AccountDD'] = 1 - balance['Balance']/balance['AccountPeak']
@@ -1278,7 +1301,7 @@ class BackTest(OHLC):
 
         return trades
 
-    def btPlot(self, balance:bool=True, log:bool=True):
+    def btPlot(self, balance:bool=False, log:bool=True):
 
         if self.trades.empty:
             print('There are no trades to plot')
@@ -1292,6 +1315,7 @@ class BackTest(OHLC):
         if 'DateTime' not in balance and 'ExitTime' in balance:
             balance['DateTime'] = balance['ExitTime'].copy()
 
+        self.balance = balance.copy()
         # Plot Backtest results
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.0,
                             row_heights=[3,1],
@@ -1397,7 +1421,8 @@ if __name__ == '__main__':
 
     import yfinance as yf
 
-    config = BtConfig('2010-01-01', dt.date.today().strftime('%Y-%m-%d'), capital=5000.0,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
+    config = BtConfig('2010-01-01', dt.date.today().strftime('%Y-%m-%d'), 
+                      capital=5000.0, monthly_add=200,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
                       use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                       max_size=10000000, commission=Commissions(), max_trades=1000, 
                       filter_ticker=False, filter_strat=False, reset_orders=True,
@@ -1442,66 +1467,102 @@ if __name__ == '__main__':
             'XAG_USD': AssetConfig(name='XAG_USD', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000000, commission=Commissions('pershare', 1.0, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
     }
-    {'SP500': '500.PA', 'NASDAQ': 'ANX.PA', 'STOXX': 'C50.PA', 'MSCI World': 'CW8.PA'}
+    tickers = {'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'}, 
+               'NASDAQ': {'yfinance':'ANX.PA', 'degiro':'LU1681038243'}, 
+               'STOXX': {'yfinance':'C50.PA'}, 
+               'MSCI World': {'yfinance':'CW8.PA'}}
     strategies = {
-        # 'detrended': StrategyConfig(name='DeTrend', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        # 'momentum': StrategyConfig(name='MOM', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        'modFisher': StrategyConfig(name='MFish', assets={
-            '500.PA': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'detrended': StrategyConfig(name='DeTrend', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        'momentum': StrategyConfig(name='MOM', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        # 'modFisher': StrategyConfig(name='MFish', assets={
+        #     'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         # 'fibEnvelopes': StrategyConfig(name='FiEnv', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        #     'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         # 'slopeStrat': StrategyConfig(name='Slo', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        #     'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         # 'robBookerStrat': StrategyConfig(name='Book', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        #     'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         # 'mandiStrat': StrategyConfig(name='Mandi', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        #     'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=6.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        # 'stochRsiStrat': StrategyConfig(name='SRSI', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        'stochRsiStrat': StrategyConfig(name='SRSI', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         # 'maZone': StrategyConfig(name='MAZ', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+        #     'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'paraSar': StrategyConfig(name='PARA', assets={
-            '500.PA': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'trendInten': StrategyConfig(name='TI', assets={
-            '500.PA': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
-        # 'rsiNeutrality': StrategyConfig(name='RSINeu', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        'rsiNeutrality': StrategyConfig(name='RSINeu', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'catapultTrend': StrategyConfig(name='Cata', assets={
-            '500.PA': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
         'turtlesBreakout': StrategyConfig(name='TB', assets={
-            '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
         }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        # 'trendContinuation': StrategyConfig(name='TC', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=6.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        # 'kamaTrend': StrategyConfig(name='KAMA', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
-        # 'atrExt': StrategyConfig(name='ATRE', assets={
-        #    '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=4.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
-        # 'indexPullback': StrategyConfig(name='IPB', assets={
-        #     '500.PA': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=10000, commission=Commissions('perunit', 0.05, cmin=1)),
-        # }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
+        'trendContinuation': StrategyConfig(name='TC', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=6.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        'kamaTrend': StrategyConfig(name='KAMA', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
+        'atrExt': StrategyConfig(name='ATRE', assets={
+           'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=50, timeframe='H1'),
+        'indexPullback': StrategyConfig(name='IPB', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=350, timeframe='H1'),
     }
 
+    strategies = {
+        'dailyPB': StrategyConfig(name='DPB', assets={
+            # 'LU1681038243': AssetConfig(name='QQQ', risk=0.02, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+            'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=2, timeframe='H1'),
+        'volatPB': StrategyConfig(name='VPB', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=3, timeframe='H1'),
+        'pullbackBounce': StrategyConfig(name='Volat', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=2, timeframe='H1'),
+        # 'indexPullback': StrategyConfig(name='IPB', assets={
+        #     'SP500': AssetConfig(name='SPY', risk=0.015, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        # }, use_sl=True, use_tp=True, time_limit=10, timeframe='H1'),
+        'atrExt': StrategyConfig(name='ATRE', assets={
+           'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=False, time_limit=10, timeframe='H1'),
+        'kamaTrend': StrategyConfig(name='KAMA', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=10, timeframe='H1'),
+        'rsiNeutrality': StrategyConfig(name='RSINeu', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=10, timeframe='H1'),
+        'paraSar': StrategyConfig(name='PARA', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=5, timeframe='H1'),
+        'momentum': StrategyConfig(name='MOM', assets={
+            'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        }, use_sl=True, use_tp=True, time_limit=5, timeframe='H1'),
+    }
+    
+
+    long_only = True
     broker = 'degiro'
-    if broker == 'degiro':
+    if broker == 'degiro' and False:
         dg = DeGiro('OneMade','Onemade3680')
 
     # Prepare data needed for backtest
@@ -1522,9 +1583,9 @@ if __name__ == '__main__':
 
                 if t not in data:
                     if broker == 'yfinance':
-                        temp = yf.Ticker(t).history(period='5y',interval='1d')
+                        temp = yf.Ticker(tickers[t][broker]).history(period='5y',interval='1d')
                     elif broker == 'degiro':
-                        products = dg.searchProducts('LU1681048804')
+                        products = dg.searchProducts(tickers[t][broker])
                         temp = dg.getCandles(Product(products[0]).id, interval=IntervalType.Max)
                 else:
                     temp = data[t].copy()
@@ -1558,6 +1619,10 @@ if __name__ == '__main__':
     df['Open'] = np.where(df['Open'] != df['Open'], df['Close'], df['Open'])
     df['High'] = np.where(df['High'] != df['High'], df['Close'], df['High'])
     df['Low'] = np.where(df['Low'] != df['Low'], df['Close'], df['Low'])
+    if long_only:
+        for c in [c for c in df.columns if 'Entry' in c]:
+            df[c] = np.where(df[c] < 0, 0, df[c])
+
     total_data.append(df)
 
     # Backtest
@@ -1567,7 +1632,7 @@ if __name__ == '__main__':
     
     trades = bt.backtest(df=total_data)
 
-    bt.btPlot(log=True)
+    bt.btPlot(balance=True, log=True)
     stats = bt.stats(column='StratName')
 
     complete.append(trades[trades['OneCandle'] == False])
