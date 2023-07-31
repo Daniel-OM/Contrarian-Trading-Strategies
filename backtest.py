@@ -522,6 +522,35 @@ class Trade:
             'Asset': self.asset.to_dict()
         }
 
+class KPIs:
+
+    def __init__(self, df:pd.DataFrame) -> None:
+
+        if not isinstance(df, pd.DataFrame):
+            raise ValueError('No DataFrame was passed.')
+
+        self.days = np.busday_count(df['DateTime'].tolist()[0].date(), df['DateTime'].tolist()[-1].date())
+        self.frequency = len(df)/self.days * 100//1/100
+            
+        temp = df.copy()        
+        temp['Ret'] = temp['Result']/(temp['SLdist']*temp['Size']) * temp['Risk']
+        temp['CumRet'] = (1+temp['Ret']).cumprod()
+
+        # Backtest analysis
+        self.winrate = len(temp['Return'][temp['Return'] > 0.0])/len(temp['Return'])
+        self.avg_win = temp['Ret'][temp['Ret'] > 0].mean()
+        self.avg_loss = temp['Ret'][temp['Ret'] < 0].mean()
+        self.expectancy = (self.winrate * self.avg_win - (1-self.winrate)*abs(self.avg_loss))
+        self.kelly = self.expectancy/self.avg_win
+        self.avg_risk = temp['Risk'].mean()
+        self.balance = temp['Balance'].iloc[-1]
+        self.max_dd = temp['AccountDD'].max()
+        self.n_trades = len(temp)
+        
+    def to_dict(self) -> dict:
+
+        return self.__dict__
+    
 class BackTest(OHLC):
 
     '''
@@ -1073,7 +1102,7 @@ class BackTest(OHLC):
         self.open_orders = pd.DataFrame(
                     [{**t.to_dict(), **{'Trades':t}} for t in open_orders])
 
-        return self.trades
+        return self.trades.copy()
 
     def tradesDF(self, trades:list) -> pd.DataFrame:
 
@@ -1082,6 +1111,7 @@ class BackTest(OHLC):
             result = []
             balance = [bt.config.capital]
             last_date = None
+            trades = [copy.deepcopy(t) for t in trades]
             for trade in trades:
                 if config.monthly_add > 0 and last_date != None and \
                     trade.datetime.month != last_date.month:
@@ -1108,7 +1138,7 @@ class BackTest(OHLC):
             if self.trades.empty:
                 print('There are no trades to plot')
                 return None
-            trades = self.trades['Trades'].to_list()
+            trades = self.trades['Trades'].copy().to_list()
 
         trades = copy.deepcopy(trades)
         balance = []
@@ -1168,7 +1198,7 @@ class BackTest(OHLC):
         days = np.busday_count(self.data_df['DateTime'].tolist()[0].date(), self.data_df['DateTime'].tolist()[-1].date())
 
         if not isinstance(df, pd.DataFrame):
-            df = self.trades
+            df = self.trades.copy()
             
         temp = df.copy()        
         temp['Ret'] = temp['Result']/(temp['SLdist']*temp['Size']) * temp['Risk']
@@ -1371,9 +1401,10 @@ class BackTest(OHLC):
 
         self.stats_dict = {}
         pairs = []
-        for g in self.trades.groupby(column):
+        trades = copy.deepcopy(self.trades)
+        for g in trades.groupby(column):
 
-            temp = g[1]
+            temp = g[1].copy()
             temp = self.tradesDF(trades=temp['Trades'].tolist())
 
             self.stats_dict[g[0]] = self.btKPI(df=temp, print_stats=print_stats)
@@ -1393,22 +1424,6 @@ class BackTest(OHLC):
                 fig.show()
 
             pairs.append(g[0])
-        
-        # for strat in self.pairs_config:
-        #     for pair in self.pairs_config[strat]:
-        #         if pair not in pairs:
-        #             pairs.append(pair)
-        #             pair_stats.append({
-        #                 'Ticker': pair,
-        #                 'Winrate': float('nan'),
-        #                 'Avg. Win': 0.0,
-        #                 'Avg. Loss': 0.0,
-        #                 'Expectancy': 0.0,
-        #                 'Kelly': 0.0,
-        #                 'Avg risk': 0.0,
-        #                 'BtBalance': self.config['capital'],
-        #                 'MaxDD': 0.0
-        #             })
 
         # Comparison of pairs and total
         stats_df = pd.DataFrame(self.stats_dict).T
@@ -1562,7 +1577,7 @@ if __name__ == '__main__':
 
     long_only = True
     broker = 'degiro'
-    if broker == 'degiro' and False:
+    if broker == 'degiro':
         dg = DeGiro('OneMade','Onemade3680')
 
     # Prepare data needed for backtest
@@ -1570,7 +1585,6 @@ if __name__ == '__main__':
     indicators = Indicators(errors=False)
     total_data = []
     data = {}
-    complete = []
     if len(data) <= 0:
         for strat in strategies:
 
@@ -1594,6 +1608,8 @@ if __name__ == '__main__':
                 temp.loc[:,'SLdist'] = temp['distATR'] * c.sl
                 temp.loc[:,'Ticker'] = [t]*len(temp)
                 temp.loc[:,'Date'] = pd.to_datetime(temp.index)
+                if 'DateTime' not in temp.columns and 'Date' in temp.columns:
+                    temp.rename(columns={'Date':'DateTime'}, inplace=True)
                 
                 if 'Volume' not in temp.columns:
                     temp['Volume'] = [0]*len(temp)
@@ -1608,8 +1624,6 @@ if __name__ == '__main__':
 
     # Prepare data
     df = pd.concat([data[t] for t in data], ignore_index=True)
-    if 'DateTime' not in df.columns:
-        df.rename(columns={'Date':'DateTime'}, inplace=True)
     df.sort_values('DateTime', inplace=True)
     df.loc[:,'DateTime'] = pd.to_datetime(df['DateTime'], unit='s')
     if df['DateTime'].iloc[0].tzinfo != None:
@@ -1626,18 +1640,16 @@ if __name__ == '__main__':
     total_data.append(df)
 
     # Backtest
-    total_data = pd.concat(total_data)
     bt = BackTest(strategies=strategies, 
                 config=config)
     
+    total_data = pd.concat(total_data)
     trades = bt.backtest(df=total_data)
 
     bt.btPlot(balance=True, log=True)
     stats = bt.stats(column='StratName')
 
-    complete.append(trades[trades['OneCandle'] == False])
-
-    complete = pd.concat(complete)
+    complete = trades[trades['OneCandle'] == False].copy()
     final_df = pd.DataFrame()
     final_df['OrderDate'] = complete['OrderTime']
     final_df['EntryDate'] = complete['EntryTime']
