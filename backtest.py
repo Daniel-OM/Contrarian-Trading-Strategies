@@ -125,7 +125,7 @@ class AssetConfig:
 class StrategyConfig:
 
     def __init__(self, name:str, assets:dict={}, use_sl:bool=True, use_tp:bool=True, 
-                 time_limit:int=50, timeframe:str='H1') -> None:
+                 time_limit:int=50, timeframe:str='H1', filter:str=None) -> None:
 
         '''
         Generate commissions configuration.
@@ -158,6 +158,7 @@ class StrategyConfig:
         self.use_tp = use_tp
         self.time_limit = time_limit
         self.timeframe = timeframe
+        self.filter = filter
 
     def addAsset(self, name:str, config:AssetConfig) -> None:
 
@@ -185,6 +186,7 @@ class StrategyConfig:
             'use_tp': self.use_tp,
             'time_limit': self.time_limit,
             'timeframe': self.timeframe,
+            'filter': self.filter,
         }
     
 class BtConfig:
@@ -799,9 +801,9 @@ class BackTest(OHLC):
                     continue
 
                 # Add the monthly add if greater than 0 and the month has changed
-                if config.monthly_add > 0 and last_date != None and \
+                if self.config.monthly_add > 0 and last_date != None and \
                     last_date.month != current_date.month:
-                    balance[-1] = balance[-1] + config.monthly_add
+                    balance[-1] = balance[-1] + self.config.monthly_add
                     
                 # Look for entries
                 if len(self.entries) > 0:
@@ -1095,7 +1097,8 @@ class BackTest(OHLC):
         self.closed_trades = closed_trades
         self.trades = self.tradesDF(pd.DataFrame(
                     [{**t.to_dict(), **{'Trades':t}} for t in closed_trades]))
-        self.trades['StratName'] = self.trades['Strategy'].apply(lambda x: x['name'])
+        if not self.trades.empty:
+            self.trades['StratName'] = self.trades['Strategy'].apply(lambda x: x['name'])
         # self.trades['WeekDay'] = self.trades['EntryTime'].dt.day_name()
         self.open_trades = pd.DataFrame(
                     [{**t.to_dict(), **{'Trades':t}} for t in open_trades])
@@ -1109,13 +1112,13 @@ class BackTest(OHLC):
         if not isinstance(trades, pd.DataFrame):
             size = []
             result = []
-            balance = [bt.config.capital]
+            balance = [self.config.capital]
             last_date = None
             trades = [copy.deepcopy(t) for t in trades]
             for trade in trades:
-                if config.monthly_add > 0 and last_date != None and \
+                if self.config.monthly_add > 0 and last_date != None and \
                     trade.datetime.month != last_date.month:
-                    balance[-1] = balance[-1] + config.monthly_add
+                    balance[-1] = balance[-1] + self.config.monthly_add
                 trade.balance = balance[-1]
                 size.append(trade.calculateSize(balance=balance[-1]))
                 result.append(trade.calculateResult())
@@ -1575,13 +1578,12 @@ if __name__ == '__main__':
     }
     
 
-    long_only = True
     broker = 'degiro'
     if broker == 'degiro':
         dg = DeGiro('OneMade','Onemade3680')
 
     # Prepare data needed for backtest
-    signals = Signals(backtest=True, errors=False)
+    signals = Signals(backtest=True, side=Signals.Side.LONG, errors=False)
     indicators = Indicators(errors=False)
     total_data = []
     data = {}
@@ -1633,9 +1635,6 @@ if __name__ == '__main__':
     df['Open'] = np.where(df['Open'] != df['Open'], df['Close'], df['Open'])
     df['High'] = np.where(df['High'] != df['High'], df['Close'], df['High'])
     df['Low'] = np.where(df['Low'] != df['Low'], df['Close'], df['Low'])
-    if long_only:
-        for c in [c for c in df.columns if 'Entry' in c]:
-            df[c] = np.where(df[c] < 0, 0, df[c])
 
     total_data.append(df)
 
