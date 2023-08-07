@@ -776,8 +776,9 @@ class BackTest(OHLC):
         open_orders = []
         closed_trades = []
         prev_candle = {}
-        for t in self.strategies:
-            prev_candle[t] = {}
+        for s in self.strategies:
+            for t in self.strategies[s].assets:
+                prev_candle[t] = {}
         balance = [self.config.capital]
         self.getEntries(self.data_df.iloc[0])
         self.getExits(self.data_df.iloc[0])
@@ -830,9 +831,15 @@ class BackTest(OHLC):
                                 if asset.order_type == 'market':
                                     entry = candle['Open'] + candle['Spread']
                                 elif asset.order_type == 'stop':
-                                    entry = prev_candle[candle['Ticker']]['High']
+                                    if 'High' in prev_candle[candle['Ticker']]:
+                                        entry = prev_candle[candle['Ticker']]['High']
+                                    else:
+                                        entry = candle['Open'] + candle['Spread']
                                 elif asset.order_type == 'limit':
-                                    entry = prev_candle[candle['Ticker']]['Low']
+                                    if 'Low' in prev_candle[candle['Ticker']]:
+                                        entry = prev_candle[candle['Ticker']]['Low']
+                                    else:
+                                        entry = candle['Open'] + candle['Spread']
 
                                 # Check if the trade is already open
                                 entered = False
@@ -866,9 +873,15 @@ class BackTest(OHLC):
                                 if asset.order_type == 'market':
                                     entry = candle['Open']# - candle['Spread']
                                 elif asset.order_type == 'stop':
-                                    entry = prev_candle[candle['Ticker']]['Low']
+                                    if 'Low' in prev_candle[candle['Ticker']]:
+                                        entry = prev_candle[candle['Ticker']]['Low']
+                                    else:
+                                        entry = candle['Open'] + candle['Spread']
                                 elif asset.order_type == 'limit':
-                                    entry = prev_candle[candle['Ticker']]['High']
+                                    if 'High' in prev_candle[candle['Ticker']]:
+                                        entry = prev_candle[candle['Ticker']]['High']
+                                    else:
+                                        entry = candle['Open'] + candle['Spread']
 
                                 # Check if the trade is already open
                                 entered = False
@@ -1362,8 +1375,10 @@ class BackTest(OHLC):
                       row=1, col=1, secondary_y=False)
         
         # Add Buy & Hold comparison
-        fig.add_trace(go.Scatter(x=self.data_df['DateTime'], 
-                      y=self.data_df['Close']/self.data_df['Close'].iloc[0]*self.config.capital, 
+        temp = self.data_df[(self.config.init_date < self.data_df['DateTime']) & \
+                            (self.data_df['DateTime'] < self.config.final_date)]
+        fig.add_trace(go.Scatter(x=temp['DateTime'], 
+                      y=temp['Close']/temp['Close'].iloc[0]*self.config.capital, 
                       name='Buy & Hold'), 
                       row=1, col=1, secondary_y=False)
 

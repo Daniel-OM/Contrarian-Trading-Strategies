@@ -15,7 +15,7 @@ from degiro import DeGiro, IntervalType, Product
 from indicators import Indicators
 from signals import Signals
 
-config = BtConfig('2010-01-01', dt.date.today().strftime('%Y-%m-%d'), 
+config = BtConfig('2022-01-01', dt.date.today().strftime('%Y-%m-%d'), 
                     capital=5000.0, monthly_add=200,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
                     use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                     max_size=10000000, commission=Commissions(), max_trades=1000, 
