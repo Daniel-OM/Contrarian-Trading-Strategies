@@ -11,11 +11,11 @@ import yfinance as yf
 from backtest import (AssetConfig, BackTest, BtConfig, Commissions,
                       StrategyConfig)
 #from google_sheets.google_sheets import GoogleSheets
-from degiro import DeGiro, IntervalType, Product
+from degiro import DeGiro, IntervalType, Product, ResolutionType
 from indicators import Indicators
 from signals import Signals
 
-config = BtConfig('2022-01-01', dt.date.today().strftime('%Y-%m-%d'), 
+config = BtConfig('2020-01-01', dt.date.today().strftime('%Y-%m-%d'), 
                     capital=5000.0, monthly_add=200,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
                     use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                     max_size=10000000, commission=Commissions(), max_trades=1000, 
@@ -174,7 +174,8 @@ if portfolio:
                         temp = yf.Ticker(tickers[t][broker]).history(period='5y',interval='1d')
                     elif broker == 'degiro':
                         products = dg.searchProducts(tickers[t][broker])
-                        temp = dg.getCandles(Product(products[0]).id, interval=IntervalType.Max)
+                        temp = dg.getCandles(Product(products[0]).id, resolution=ResolutionType.D1, 
+                                             interval=IntervalType.Max)
                 else:
                     temp = data[t].copy()
 

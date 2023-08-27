@@ -689,10 +689,11 @@ class DeGiro(object):
 
         if '/' in start:
             (start, resolution) = start.rsplit(sep="/", maxsplit=1)
+        resolution = resolution.replace('Z', '')
 
         date_format = ""
         if resolution.startswith("PT"):
-            date_format = "%Y-%m-%dT%H:%M:%SZ"
+            date_format = "%Y-%m-%dT%H:%M:%S"
         else:
             date_format = "%Y-%m-%d"
 
@@ -811,13 +812,16 @@ class DeGiro(object):
                     times = serie['times']
                     start = self._parseStart(start=times)
                     interval = self._resToSeconds(resolution=times)
-
+            
                     for datapoint in serie['data']:
                         datapoint[0] = start + datapoint[0] * interval
 
                     dfs.append(self._serieToDF(serie))
-
-            data = pd.merge(dfs[0], dfs[1], on='timestamp')
+                    
+            data = pd.merge(dfs[0], dfs[1], left_index=True, right_index=True)
+            data = data[[c for c in data.columns if '_y' not in c]]
+            data.rename(columns={k: k.replace('_x','') for k in data.columns}, inplace=True)
+            # data = pd.merge(dfs[0], dfs[1], on='timestamp')
             data.columns = [c.capitalize() for c in data.columns]
             if 'Timestamp' in data.columns:
                 data['DateTime'] = pd.to_datetime(data['Timestamp'], utc=True, unit='s')
@@ -909,7 +913,8 @@ if __name__ == '__main__':
 
     dg = DeGiro('OneMade','Onemade3680')
     products = dg.searchProducts('Amundi S&P 500') # dg.searchProducts('LU1681048804')
-    data = dg.getCandles(Product(products[0]), interval=IntervalType.Max)
-    products = dg.searchProducts('Amundi Nasdaq-100') # dg.searchProducts('LU1681038243')
-    data = dg.getCandles(Product(products[0]), interval=IntervalType.Max)
-    products = dg.searchProducts('SPY') # dg.searchProducts('LU1681038243')
+    data = dg.getCandles(Product(products[0]), resolution=ResolutionType.H1, 
+                                             interval=IntervalType.Y3)
+    #products = dg.searchProducts('Amundi Nasdaq-100') # dg.searchProducts('LU1681038243')
+    #data = dg.getCandles(Product(products[0]), interval=IntervalType.Max)
+    #products = dg.searchProducts('SPY') # dg.searchProducts('IE00B6YX5C33')
