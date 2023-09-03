@@ -15,8 +15,8 @@ from degiro import DeGiro, IntervalType, Product, ResolutionType
 from indicators import Indicators
 from signals import Signals
 
-config = BtConfig('2020-01-01', dt.date.today().strftime('%Y-%m-%d'), 
-                    capital=5000.0, monthly_add=200,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
+config = BtConfig('2000-01-01', dt.date.today().strftime('%Y-%m-%d'), 
+                    capital=2000.0, monthly_add=200,  # (dt.date.today() - dt.timedelta(days=250)).strftime('%Y-%m-%d')
                     use_sl=True, use_tp=True, time_limit=None, min_size=1000, 
                     max_size=10000000, commission=Commissions(), max_trades=1000, 
                     filter_ticker=False, filter_strat=False, reset_orders=True,
@@ -144,7 +144,17 @@ strategies = {
     'momentum': StrategyConfig(name='momentum', assets={
         'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
+    'adxMomentum': StrategyConfig(name='adxMomentum', assets={
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+    }, use_sl=True, use_tp=True, time_limit=100, timeframe='D1'),
+    'weeklyDip': StrategyConfig(name='weeklyDip', assets={
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+    }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
+    'stochDip': StrategyConfig(name='stochDip', assets={
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+    }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
 }
+
 
 #Connect to the data provider
 broker = 'degiro'
@@ -188,7 +198,7 @@ if portfolio:
                 
                 if 'Volume' not in temp.columns:
                     temp['Volume'] = [0]*len(temp)
-
+                    
                 temp = signal(df=temp, strat_name=strat)
                 if apply_filter and strategies[strat].filter != None and 'MA' in strategies[strat].filter:
                     period = int(strategies[strat].filter.split('_')[-1])

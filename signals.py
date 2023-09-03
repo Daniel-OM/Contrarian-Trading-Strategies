@@ -4046,7 +4046,7 @@ class TrendStrategies(SignalsTemplate):
         return self.ohlc_df
     
     def maRsi(self,df:pd.DataFrame=None, n:int=50, m:int=2, lower:float=5, upper:float=95, 
-              strat_name:str='MaRSITrend', exit_signal:bool=False) -> pd.DataFrame: 
+              confirm:bool=False, strat_name:str='MaRSITrend', exit_signal:bool=False) -> pd.DataFrame: 
         
         '''
         Buy when price is above the moving average and the RSI crosses the lower level upwards.
@@ -4063,6 +4063,8 @@ class TrendStrategies(SignalsTemplate):
             Lower limit.
         upper: float
             Upper limit.
+        confirm: bool
+            True to wait for the reentry of the RSI in the middle zone.
         strat_name: str
             Name of the strategy that uses the signal.
         exit_signal: bool
@@ -4074,9 +4076,7 @@ class TrendStrategies(SignalsTemplate):
             DataFrame containing all the data.
         '''
         
-        
         df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
-        
 
         df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
                                         dataname='MA', new_df=df)
@@ -4084,9 +4084,9 @@ class TrendStrategies(SignalsTemplate):
                                         dataname='RSI', new_df=df)
         
         short_condition = (df['Close'] < df['MA']) & (df['RSI'] > upper) & \
-                        (df['RSI'].shift(1) < upper)
+                        ((~confirm) | (df['RSI'].shift(1) < upper))
         long_condition = (df['Close'] > df['MA']) & (df['RSI'] < lower) & \
-                        (df['RSI'].shift(1) > lower)
+                        ((~confirm) | (df['RSI'].shift(1) > lower))
         exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
                         (df['SLdist'] > 0.00001)
         
@@ -4749,7 +4749,299 @@ class TrendStrategies(SignalsTemplate):
 
         return self.ohlc_df
     
-class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, ContrarianStrategies, TrendStrategies):
+class RadgeStrategies(SignalsTemplate):
+
+    def maRetracement(self, df:pd.DataFrame=None, n:int=100, m:int=5, 
+                      exit_signal:bool=True, strat_name:str='NRMA') -> pd.DataFrame: 
+        
+        '''
+        Buy when the price moves below the fast MA when the fast MA is above 
+        the slow MA and the price forms x consecutive lower lows.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the fast Moving Average.
+        m: int
+            Length of the slow Moving Average.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+
+        df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
+                                        dataname='FMA', new_df=df)
+        df = self.indicators.movingAverage(n=m, method='s', datatype='Close', 
+                                        dataname='SMA', new_df=df)
+        
+        short_condition = (df['Close'] > df['FMA']) & (df['Close'] < df['SMA']) & \
+                        (df['High'] > df['High'].shift(1)) & \
+                        (df['High'].shift(1) > df['High'].shift(2)) & \
+                        (df['High'].shift(2) > df['High'].shift(3))
+        long_condition = (df['Close'] < df['FMA']) & (df['Close'] > df['SMA']) & \
+                        (df['Low'] < df['Low'].shift(1)) & \
+                        (df['Low'].shift(1) < df['Low'].shift(2)) & \
+                        (df['Low'].shift(2) < df['Low'].shift(3))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+        
+        df = self._generateSignal(df, strat_name, long_condition, short_condition, 
+                                  exe_condition)
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['Close'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Close'].shift(2)), -1, 0))
+
+        self.ohlc_df = df.copy()
+
+        return self.ohlc_df
+
+    def bbRsiStrat(self,df:pd.DataFrame=None, n:int=200, std:float=3, 
+                    strat_name:str='NRBB', exit_signal:bool=False) -> pd.DataFrame: 
+        
+        '''
+        Buy when the price crosses above the upper bollinger band.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Bollinger Bands.
+        std: float
+            Standard deviation of the Bollinger Bands.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+        df = self.indicators.movingAverage(n=50, method='s', datatype='Close', 
+                                        dataname='MA', new_df=df)
+        df = self.indicators.bollingerBands(n=n, method='s', desvi=std, 
+                                datatype='Close', dataname='BB', new_df=df)
+        
+        short_condition = (df['Close'] < df['BBUP']) & (df['BBUP'].shift(1) < df['Close'].shift(1))
+        long_condition = (df['Close'] > df['BBUP']) & (df['BBUP'].shift(1) > df['Close'].shift(1))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+        
+        df = self._generateSignal(df, strat_name, long_condition, short_condition, 
+                                  exe_condition)
+
+        if exit_signal:
+            sl_long = []
+            sl_short = []
+            side = []
+            s = 0
+            for i in df.index:
+                candle = df.loc[i]
+                sl_l = candle['Close'] * 0.8 if candle['Close'] > candle['MA'] else 0.9
+                sl_s = candle['Close'] * 1.2 if candle['Close'] > candle['MA'] else 1.1
+                if candle[self._renameEntry(strat_name)] > 0 or s == 1:
+                    s = 1
+                    if len(sl_long) > 0 and sl_l < sl_long[-1]:
+                        sl_l = sl_long[-1]
+                if candle[self._renameEntry(strat_name)] < 0 or s == -1:
+                    s = -1
+                    if len(sl_short) > 0 and sl_s > sl_short[-1]:
+                        sl_s = sl_short[-1]
+                if s == 1 and df['Close'] < sl_long[-1] or \
+                    s == -1 and df['Close'] > sl_short[-1]:
+                    s = 0
+
+                sl_long.append(sl_long)
+                sl_short.append(sl_short)
+                side.append(s)
+
+            df['SL'] = side
+            df[self._renameExit(strat_name)] = np.where((df['SL'] == 0) & (df['SL'].shift(1) > 0), 1,
+                                            np.where((df['SL'] == 0) & (df['SL'].shift(1) < 0), -1, 0))
+
+        self.ohlc_df = df
+
+        return self.ohlc_df
+
+    def adxMomentum(self, df:pd.DataFrame=None, n:int=5, m:int=5, 
+                      exit_signal:bool=True, strat_name:str='NRADX') -> pd.DataFrame: 
+        
+        '''
+        Buy when the ADX is above 5 candles before and 10 candles before and 
+        the price closes below the ATR.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Average Directional Index.
+        m: int
+            Length of the Average True Range.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+
+        df = self.indicators.adx(n=n, method='e', dataname='ADX', new_df=df)
+        df = self.indicators.atr(n=m, method='s', dataname='ATR', new_df=df)
+        
+        short_condition = (df['ADX'].shift(1) > df['ADX'].shift(2)) & \
+                        (df['ADX'].shift(1) > df['ADX'].shift(6)) & \
+                        (df['ADX'].shift(1) > df['ADX'].shift(11)) & \
+                        (df['Close'] > df['High'].shift(1) + df['ATR'].shift(1))
+        long_condition = (df['ADX'].shift(1) > df['ADX'].shift(2)) & \
+                        (df['ADX'].shift(1) > df['ADX'].shift(6)) & \
+                        (df['ADX'].shift(1) > df['ADX'].shift(11)) & \
+                        (df['Close'] < df['Low'].shift(1) - df['ATR'].shift(1))
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+        
+        df = self._generateSignal(df, strat_name, long_condition, short_condition, 
+                                  exe_condition)
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'].shift(1) > df['Close'].shift(2)), 1,
+                        np.where((df['Close'].shift(1) < df['Close'].shift(2)), -1, 0))
+
+        self.ohlc_df = df.copy()
+
+        return self.ohlc_df
+
+    def weeklyDip(self, df:pd.DataFrame=None, n:int=200, m:int=7, 
+                      exit_signal:bool=True, strat_name:str='NRWD') -> pd.DataFrame: 
+        
+        '''
+        Buy when the price is above the 200 SMA and closes at a 7 days low.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Average.
+        m: int
+            Number of days for the dip.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+
+        df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
+                                           dataname='MA', new_df=df)
+        df = self.indicators.donchian(n=m, high_data='Close', low_data='Close', 
+                                      dataname='DC', new_df=df)
+        
+        short_condition = (df['Close'] > df['MA']) & \
+                        (df['Close'] >= df['DCUP'])
+        long_condition = (df['Close'] < df['MA']) & \
+                        (df['Close'] <= df['DCDN'])
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+        
+        df = self._generateSignal(df, strat_name, long_condition, short_condition, 
+                                  exe_condition)
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'] <= df['DCDN']), 1,
+                        np.where((df['Close'] >= df['DCUP']), -1, 0))
+
+        self.ohlc_df = df.copy()
+
+        return self.ohlc_df
+
+    def stochDip(self, df:pd.DataFrame=None, n:int=200, m:int=10, 
+                      exit_signal:bool=True, strat_name:str='NRWD') -> pd.DataFrame: 
+        
+        '''
+        Buy when the price is above the 200 SMA and the stochastic 
+        is below 5.
+
+        Parameters
+        ----------
+        df: pd.DataFrame
+            DataFrame with the price data.
+        n: int
+            Length of the Moving Average.
+        m: int
+            Length of the Stochastic Oscillator.
+        strat_name: str
+            Name of the strategy that uses the signal.
+        exit_signal: bool
+            True to generate an exit signal too.
+
+        Returns
+        -------
+        df: pd.DataFrame
+            DataFrame containing all the data.
+        '''
+        
+        
+        df = self._newDf(df, needed_cols=self.needed_cols, overwrite=True)
+        
+
+        df = self.indicators.movingAverage(n=n, method='s', datatype='Close', 
+                                            dataname='MA', new_df=df)
+        df = self.indicators.stochasticOscillator(n=m, m=1, p=5, method='s', 
+                                            dataname='SO', new_df=df)
+        
+        short_condition = (df['Close'] < df['MA']) & (df['SOK'] > 95)
+        long_condition = (df['Close'] > df['MA']) & (df['SOK'] < 5)
+        exe_condition = (df['Spread'] < 0.25*df['SLdist']) & \
+                        (df['SLdist'] > 0.00001)
+        
+        df = self._generateSignal(df, strat_name, long_condition, short_condition, 
+                                  exe_condition)
+
+        if exit_signal:
+            df[self._renameExit(strat_name)] = np.where((df['Close'] > df['Close'].shift(1)), 1,
+                        np.where((df['Close'] < df['Close'].shift(1)), -1, 0))
+
+        self.ohlc_df = df.copy()
+
+        return self.ohlc_df
+
+class Signals(PrimaryIndicatorSignals, SecondaryIndicatorSignals, KSignals, 
+              ContrarianStrategies, TrendStrategies, RadgeStrategies):
     
     def turtlesBreakout(self, df:pd.DataFrame=None, 
                       n:int=100, strat_name:str='TBO') -> pd.DataFrame: 
