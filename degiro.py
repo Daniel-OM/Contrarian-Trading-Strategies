@@ -322,8 +322,8 @@ class DeGiro(object):
         info = self.clientInfo()
         self.clientToken()
 
-    @staticmethod
-    def __request(url, cookie:dict=None, payload:dict=None, headers:dict=None, 
+    # @staticmethod
+    def __request(self, url:str, cookie:dict=None, payload:dict=None, headers:dict=None, 
                   data:dict=None, post_params:dict=None, request_type:int=__GET_REQUEST,
                   error_message:str='An error occurred.') -> dict:
 
@@ -364,6 +364,8 @@ class DeGiro(object):
             response = requests.post(url, headers=headers, json=payload)
         else:
             raise Exception(f'Unknown request type: {request_type}')
+        
+        self.r = response
 
         if response.status_code == 200 or response.status_code == 201:
             try:
@@ -812,7 +814,7 @@ class DeGiro(object):
                     times = serie['times']
                     start = self._parseStart(start=times)
                     interval = self._resToSeconds(resolution=times)
-            
+                    
                     for datapoint in serie['data']:
                         datapoint[0] = start + datapoint[0] * interval
 

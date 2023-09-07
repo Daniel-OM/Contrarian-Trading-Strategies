@@ -60,11 +60,83 @@ class Commissions:
             'max': self.max
         }
 
+class DrawDownMitigation:
+
+    class Methods:
+        LINEAR = 'linear'
+        PARABOLIC = 'parabolic'
+
+    def __init__(self, max_risk:float=0.1, min_risk:float=0.005, increase_rate:float=2, 
+                 decrease_rate:float=2, method:Methods=Methods.PARABOLIC, 
+                 ma_period:int=0) -> None:
+
+        '''
+        Generates the DrawDown mitigation object for the backtest.
+
+        Parameters
+        ----------
+        max_risk: float
+            Maximum risk available. Must be in per unit.
+        min_risk: float
+            Minimum risk available. Must be in per unit.
+        increase_rate: float
+            Rate at which increase the risk.
+        decrease_rate: float
+            Rate at which decrease the risk.
+        method: Methods
+            Rate application method. It can be LINEAR or PARABOLIC.
+        ma_period: int
+            Period of the MA to define if increase or decrease. When 0 the difference 
+            between previous drawdown and current one will be used.
+        '''
+
+        self.max_risk = max_risk
+        self.min_risk = min_risk
+        self.increase_rate = increase_rate
+        self.decrease_rate = decrease_rate
+        self.method = method
+        self.ma_period = ma_period
+
+    def calculateRisk(self, trades:pd.DataFrame) -> float:
+
+        temp = trades.copy()
+        temp.columns = [c.lower() for c in temp.columns]
+        
+        if 'accountdd' not in temp.columns:
+            temp['drawdown'] = [0]
+        else:
+            temp['drawdown'] = temp['accountdd']
+        
+        if self.ma_period > 0:
+            temp['filter'] = temp['drawdown'] - temp['drawdown'].rolling(self.ma_period).mean()
+        else:
+            temp['filter'] = temp['drawdown'] - temp['drawdown'].shift(1)
+
+        if self.method == self.Methods.LINEAR:
+            risk = temp.iloc[-1]['risk']
+            if temp.iloc[-1]['filter'] > 0:
+                risk = risk * (1 - temp.iloc[-1]['drawdown'] / self.increase_rate)
+            elif temp.iloc[-1]['filter'] < 0:
+                risk = risk * (1 - temp.iloc[-1]['drawdown'] * self.decrease_rate)
+        elif self.method == self.Methods.PARABOLIC:
+            risk = temp.iloc[-1]['risk']
+            if temp.iloc[-1]['filter'] > 0:
+                risk = risk * (1 - temp.iloc[-1]['drawdown'] ** self.increase_rate)
+            elif temp.iloc[-1]['filter'] < 0:
+                risk = risk * (1 - temp.iloc[-1]['drawdown'] ** (1/self.decrease_rate))
+
+        if risk > self.max_risk:
+            risk = self.max_risk
+        elif risk < self.min_risk:
+            risk = self.min_risk
+
+        return risk
+     
 class AssetConfig:
 
     def __init__(self, name:str, risk:float=0.01, sl:float=None, tp:float=None, 
                  order:str='stop', min_size:float=1.0, max_size:float=10000.0, 
-                 commission:Commissions=None) -> None:
+                 commission:Commissions=None, drawdown:DrawDownMitigation=None) -> None:
 
         '''
         Generate commissions configuration.
@@ -99,6 +171,7 @@ class AssetConfig:
         self.min_size = min_size
         self.max_size = max_size
         self.commission = commission
+        self.drawdown = drawdown
     
     def to_dict(self) -> dict:
 
@@ -188,7 +261,7 @@ class StrategyConfig:
             'timeframe': self.timeframe,
             'filter': self.filter,
         }
-    
+
 class BtConfig:
 
     '''
@@ -516,6 +589,7 @@ class Trade:
             'Risk': self.risk,
             'Balance': self.balance,
             'Size': self.calculateSize(),
+            'Risk': self.risk,
             'SLdist': self.sldist,
             'High': max([c['High'] for c in self.candles]+[0]),
             'Low': min([c['Low'] for c in self.candles]+[0]),
@@ -824,9 +898,12 @@ class BackTest(OHLC):
                         if candle[f'{strat}Entry'] != 0 and trades_qty < self.config.max_trades:
 
                             asset = self.strategies[strat].assets[candle['Ticker']]
+                            entry = None
+                            side = 0
 
                             # Long orders
                             if candle[f'{strat}Entry'] > 0:
+                                side = 'long'
                                 # Buy order entry price
                                 if asset.order_type == 'market':
                                     entry = candle['Open'] + candle['Spread']
@@ -841,34 +918,9 @@ class BackTest(OHLC):
                                     else:
                                         entry = candle['Open'] + candle['Spread']
 
-                                # Check if the trade is already open
-                                entered = False
-                                for t in open_trades:
-                                    if t.entry == entry or candle['Open'] == prev_candle[candle['Ticker']]['Open']:
-                                        entered = True
-                                        break
-
-                                # Reset long open orders
-                                if self.config.reset_orders:
-                                    open_orders = [order for order in open_orders if (order.signal != 'long') or \
-                                                   (order.ticker != candle['Ticker']) or (order.strategy != strat)]
-
-                                # Define the new buy order
-                                trade = Trade(candle, 'long', self.strategies[strat], entry, balance[-1])
-                                
-                                if not entered:
-                                    current_capital = self.currentCapital(balance[-1], open_trades)
-                                    if trade.entry * trade.size >= current_capital:
-                                        trade.calculateSize(balance=current_capital)
-
-                                    # If market order execute it if not append to orders
-                                    if asset.order_type == 'market':
-                                        open_trades.append(trade)
-                                    else:
-                                        open_orders.append(trade)
-
                             # Short orders
                             if candle[f'{strat}Entry'] < 0:
+                                side = 'short'
                                 # Sell order entry price
                                 if asset.order_type == 'market':
                                     entry = candle['Open']# - candle['Spread']
@@ -883,30 +935,42 @@ class BackTest(OHLC):
                                     else:
                                         entry = candle['Open'] + candle['Spread']
 
-                                # Check if the trade is already open
-                                entered = False
-                                for t in open_trades:
-                                    if t.entry == entry or candle['Open'] == prev_candle[candle['Ticker']]['Open']:
-                                        entered = True
-                                        break
-                                    
-                                # Reset long open orders
+                            # Check if the trade is already open
+                            entered = False
+                            for t in open_trades:
+                                if t.entry == entry or candle['Open'] == prev_candle[candle['Ticker']]['Open']:
+                                    entered = True
+                                    break
+                                
+                            # If not entered
+                            if not entered:
+                                # Reset open orders of that side
                                 if self.config.reset_orders:
-                                    open_orders = [order for order in open_orders if (order.signal != 'short') or \
-                                                   (order.ticker != candle['Ticker']) or (order.strategy != strat)]
-
-                                # Define the new sell order
-                                trade = Trade(candle, 'short', self.strategies[strat], entry, balance[-1])
-                                if not entered:
-                                    current_capital = self.currentCapital(balance[-1], open_trades)
-                                    if trade.entry * trade.size >= current_capital:
-                                        trade.calculateSize(balance=current_capital)
-
-                                    # If market order execute it if not append to orders
-                                    if asset.order_type == 'market':
-                                        open_trades.append(trade)
+                                    open_orders = [order for order in open_orders if (order.signal != side) or \
+                                                (order.ticker != candle['Ticker']) or (order.strategy != strat)]
+                                
+                                # Define the new order
+                                trade = Trade(candle, side, self.strategies[strat], entry, balance[-1])
+                                current_capital = self.currentCapital(balance[-1], open_trades)
+                                if asset.drawdown != None:
+                                    filtered_trades = [t for t in closed_trades if t.ticker == candle['Ticker'] and t.strategy.name == strat]
+                                    if len(filtered_trades) > 0:
+                                        risk = asset.drawdown.calculateRisk(
+                                            trades=self.tradesDF(pd.DataFrame(
+                                                [{**t.to_dict(), **{'Trades':t}} for t in filtered_trades])))
                                     else:
-                                        open_orders.append(trade)
+                                        risk = None
+                                else:
+                                    risk = None
+
+                                if trade.entry * trade.size >= current_capital:
+                                    trade.calculateSize(risk=risk, balance=current_capital)
+
+                                # If market order execute it if not append to orders
+                                if asset.order_type == 'market':
+                                    open_trades.append(trade)
+                                else:
+                                    open_orders.append(trade)
 
                 # Review pending orders execution
                 if len(open_orders) > 0:

@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import pytz
 import yfinance as yf
 from backtest import (AssetConfig, BackTest, BtConfig, Commissions,
-                      StrategyConfig)
+                      StrategyConfig, DrawDownMitigation)
 #from google_sheets.google_sheets import GoogleSheets
 from degiro import DeGiro, IntervalType, Product, ResolutionType
 from indicators import Indicators
@@ -23,7 +23,7 @@ config = BtConfig('2000-01-01', dt.date.today().strftime('%Y-%m-%d'),
                     continue_onecandle=False, offset_aware=False)
 
 
-tickers = {'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'}, 
+tickers = {'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'},
             'NASDAQ': {'yfinance':'ANX.PA', 'degiro':'LU1681038243'}, 
             'STOXX': {'yfinance':'C50.PA'}, 
             'MSCI World': {'yfinance':'CW8.PA'}}
@@ -31,130 +31,128 @@ tickers = {'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'},
 # Prepare all the available strategies
 signals = Signals(backtest=True, side=Signals.Side.LONG, errors=False)
 strategies = {s: StrategyConfig(name=s, assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                                     commission=Commissions('perunit', 0.05, cmin=1)),
             }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1') \
             for s in dir(signals) if '_' not in s and 'get' not in s and not s[0].isupper() and \
                 callable(getattr(signals, s))}
 
 strategies = {
-    'atrExt': StrategyConfig(name='atrExt', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.0075, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100'),
- 'dailyPB': StrategyConfig(name='dailyPB', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.008, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1', filter='MA_100'),
- 'detrended': StrategyConfig(name='detrended', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1', filter='MA_100'), # 2
- 'envelopes': StrategyConfig(name='envelopes', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'fibTiming': StrategyConfig(name='fibTiming', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'rsiExtremeDuration': StrategyConfig(name='rsiExtremeDuration', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'), # 2
- 'chandeMomentum': StrategyConfig(name='chandeMomentum', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1'),
- 'macdTrend': StrategyConfig(name='macdTrend', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'paraSar': StrategyConfig(name='paraSar', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1'), # 2
- 'pullbackBounce': StrategyConfig(name='pullbackBounce', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'rsiAtr': StrategyConfig(name='rsiAtr', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'stochExtreme': StrategyConfig(name='stochExtreme', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
- 'trendContinuation': StrategyConfig(name='trendContinuation', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.002, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100'),
- 'trendInten': StrategyConfig(name='trendInten', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'), # 2
- 'turtlesBreakout': StrategyConfig(name='turtlesBreakout', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100'),
- 'volatPB': StrategyConfig(name='volatPB', assets={
-                'SP500': AssetConfig(name='SPY', risk=0.005, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
-            }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100')}
-
-strategies = {
     'detrended': StrategyConfig(name='detrended', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.01, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1', filter='MA_100'), # 2
     'envelopes': StrategyConfig(name='envelopes', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.01, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'fibTiming': StrategyConfig(name='fibTiming', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.02, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'rsiExtremeDuration': StrategyConfig(name='rsiExtremeDuration', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.04, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'), # 2
     'chandeMomentum': StrategyConfig(name='chandeMomentum', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.06, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1'),
     'macdTrend': StrategyConfig(name='macdTrend', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.03, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'rsiAtr': StrategyConfig(name='rsiAtr', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.02, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'stochExtreme': StrategyConfig(name='stochExtreme', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.02, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'trendContinuation': StrategyConfig(name='trendContinuation', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.005, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.005, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.01, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100'),
     'trendInten': StrategyConfig(name='trendInten', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.04, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.025, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'), # 2
     'turtlesBreakout': StrategyConfig(name='turtlesBreakout', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.015, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1', filter='MA_100'),
     'dailyPB': StrategyConfig(name='dailyPB', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.015, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.015, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.03, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1', filter='MA_100'),
     'volatPB': StrategyConfig(name='volatPB', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.015, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=3, timeframe='D1'),
     'pullbackBounce': StrategyConfig(name='pullbackBounce', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.025, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=2, timeframe='D1'),
     'atrExt': StrategyConfig(name='atrExt', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=10.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.03, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=False, time_limit=10, timeframe='D1', filter='MA_100'),
     'kamaTrend': StrategyConfig(name='kamaTrend', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=10.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.02, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=10, timeframe='D1'),
     'rsiNeutrality': StrategyConfig(name='rsiNeutrality', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.02, sl=2.0, tp=4.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.015, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=10, timeframe='D1'),
     'paraSar': StrategyConfig(name='paraSar', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.03, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.025, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'momentum': StrategyConfig(name='momentum', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=2.0, tp=5.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.01, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'adxMomentum': StrategyConfig(name='adxMomentum', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.035, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=100, timeframe='D1'),
     'weeklyDip': StrategyConfig(name='weeklyDip', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.025, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
     'stochDip': StrategyConfig(name='stochDip', assets={
-        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, commission=Commissions('perunit', 0.05, cmin=1)),
+        'SP500': AssetConfig(name='SPY', risk=0.01, sl=4.0, tp=2.0, order='stop', min_size=1, max_size=5000, 
+                             commission=Commissions('perunit', 0.05, cmin=1), 
+                             drawdown=DrawDownMitigation(max_risk=0.03, min_risk=0.005,ma_period=20)),
     }, use_sl=True, use_tp=True, time_limit=5, timeframe='D1'),
 }
 
+for strat in strategies:
+    for asset in strategies[strat].assets:
+        strategies[strat].assets[asset].drawdown = None
 
 #Connect to the data provider
 broker = 'degiro'
@@ -181,7 +179,7 @@ if portfolio:
 
                 if t not in data:
                     if broker == 'yfinance':
-                        temp = yf.Ticker(tickers[t][broker]).history(period='5y',interval='1d')
+                        temp = yf.Ticker(tickers[t][broker]).history(period='max',interval='1d')
                     elif broker == 'degiro':
                         products = dg.searchProducts(tickers[t][broker])
                         temp = dg.getCandles(Product(products[0]).id, resolution=ResolutionType.D1, 
