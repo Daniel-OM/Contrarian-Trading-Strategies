@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 #from google_sheets.google_sheets import GoogleSheets
 from backtest import StrategyConfig
-from degiro import DeGiro, IntervalType, Product, ResolutionType, Order
+from degiro import DeGiro, IntervalType, Product, ResolutionType, Order, DataType
 from indicators import Indicators
 from signals import Signals
 from config import strategies, tickers, broker, apply_filter
@@ -58,6 +58,7 @@ class Trade:
         self.balance = balance
         self.size = self.calculateSize()
         self.result = None
+        self.candle = candle
 
     def calculateEntry(self, candle:dict, prev_candle:dict) -> float:
 
@@ -136,19 +137,31 @@ class Trade:
         return self.__dict__
 
 
-def enterOrder(trade:Trade) -> None:
+def enterOrders(trades:list) -> None:
 
-    product = dg.searchProducts(trade.asset.id)[0]
-    side = 'BUY' if trade.side == 'long' else 'SELL'
-    if trade.order == 'stop':
-        dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
-                      Order.Time.GTC, limit=trade.entry)
-    elif trade.order == 'limit':
-        dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
-                      Order.Time.GTC, limit=trade.entry)
-    else:
-        dg.tradeOrder(product, trade.size, side, Order.Type.MARKET, 
-                      Order.Time.GTC, limit=trade.entry)
+    for trade in trades:
+
+        product = dg.searchProducts(trade.asset.id)[0]
+        side = 'BUY' if trade.side == 'long' else 'SELL'
+        stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
+                else trade.entry - trade.candle['SLdist']/2
+        if trade.order == 'stop':
+            dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
+                        Order.Time.GTC, limit=trade.entry, stop_loss=stop)
+        elif trade.order == 'limit':
+            dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
+                        Order.Time.GTC, limit=trade.entry)
+        else:
+            dg.tradeOrder(product, trade.size, side, Order.Type.MARKET, 
+                        Order.Time.GTC)
+        
+def getEquity() -> float:
+
+    return float(dg.getData(DataType.CASHFUNDS)[0][3:])
+
+def getPortfolio() -> list:
+
+    return dg.getData(DataType.PORTFOLIO)
 
     
 
@@ -220,14 +233,12 @@ for strat in strategies:
             data[t] = temp.copy()
 
         # Store portfolio
-        if strat not in portfolio:
-            portfolio[strat] = {}
-        if t not in portfolio[strat]:
-            portfolio[strat][t] = []
+        if t not in portfolio:
+            portfolio[t] = []
         
         if temp.iloc[-1][f'{strat}Entry'] > 0:
-            trade = Trade(temp.iloc[-1], 'long', strategies[strat], )
-            portfolio[strat][t].append(trade)
-            enterOrder(trade)
+            trade = Trade(temp, 'long', strategies[strat], )
+            portfolio[t].append(trade.to_dict())
 
 
+# Execute trades
