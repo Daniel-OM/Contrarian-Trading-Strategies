@@ -136,13 +136,33 @@ class Trade:
 
         return self.__dict__
 
+def postOrder(trade:Trade) -> None:
 
-def enterOrders(trades:list) -> None:
+    product = dg.searchProducts(trade.asset.id)[0]
+    side = 'BUY' if trade.side == 'long' else 'SELL'
+    stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
+            else trade.entry - trade.candle['SLdist']/2
+    if trade.order == 'stop':
+        dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
+                    Order.Time.GTC, limit=trade.entry, stop_loss=stop)
+    elif trade.order == 'limit':
+        dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
+                    Order.Time.GTC, limit=trade.entry)
+    else:
+        dg.tradeOrder(product, trade.size, side, Order.Type.MARKET, 
+                    Order.Time.GTC)
 
-    for trade in trades:
 
-        product = dg.searchProducts(trade.asset.id)[0]
-        side = 'BUY' if trade.side == 'long' else 'SELL'
+def enterOrders(trades:dict) -> None:
+
+    for symbol in trades:
+        df = pd.DataFrame(trades[symbol])
+        product = dg.searchProducts(symbol)[0]
+
+        for side in df.groupby('signal'):
+            side = 'BUY' if side[0] == 'long' else 'SELL'
+            temp = side[1]
+
         stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
                 else trade.entry - trade.candle['SLdist']/2
         if trade.order == 'stop':
@@ -224,6 +244,7 @@ for strat in strategies:
         temp['High'] = np.where(temp['High'] != temp['High'], temp['Close'], temp['High'])
         temp['Low'] = np.where(temp['Low'] != temp['Low'], temp['Close'], temp['Low'])
 
+        t = tickers[t][broker]
         # Store data
         if t in data:
             for c in temp:
@@ -241,4 +262,4 @@ for strat in strategies:
             portfolio[t].append(trade.to_dict())
 
 
-# Execute trades
+# Execute orders
