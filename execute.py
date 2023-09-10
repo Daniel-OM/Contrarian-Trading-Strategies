@@ -140,11 +140,15 @@ def postOrder(trade:Trade) -> None:
 
     product = dg.searchProducts(trade.asset.id)[0]
     side = 'BUY' if trade.side == 'long' else 'SELL'
-    stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
-            else trade.entry - trade.candle['SLdist']/2
+    
     if trade.order == 'stop':
+        stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
+                else trade.entry - trade.candle['SLdist']/2
         dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
                     Order.Time.GTC, limit=trade.entry, stop_loss=stop)
+    elif trade.order == 'stoplimit':
+        dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
+                    Order.Time.GTC, stop_loss=trade.entry)
     elif trade.order == 'limit':
         dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
                     Order.Time.GTC, limit=trade.entry)
