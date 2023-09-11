@@ -908,12 +908,14 @@ class BackTest(OHLC):
                                 if asset.order_type == 'market':
                                     entry = candle['Open'] + candle['Spread']
                                 elif asset.order_type == 'stop':
-                                    if 'High' in prev_candle[candle['Ticker']]:
+                                    if 'High' in prev_candle[candle['Ticker']] and \
+                                        prev_candle[candle['Ticker']]['High'] > candle['High']:
                                         entry = prev_candle[candle['Ticker']]['High']
                                     else:
                                         entry = candle['Open'] + candle['Spread']
                                 elif asset.order_type == 'limit':
-                                    if 'Low' in prev_candle[candle['Ticker']]:
+                                    if 'Low' in prev_candle[candle['Ticker']] and \
+                                        prev_candle[candle['Ticker']]['Low'] < candle['Open']:
                                         entry = prev_candle[candle['Ticker']]['Low']
                                     else:
                                         entry = candle['Open'] + candle['Spread']
@@ -923,17 +925,19 @@ class BackTest(OHLC):
                                 side = 'short'
                                 # Sell order entry price
                                 if asset.order_type == 'market':
-                                    entry = candle['Open']# - candle['Spread']
+                                    entry = candle['Open'] - candle['Spread']
                                 elif asset.order_type == 'stop':
-                                    if 'Low' in prev_candle[candle['Ticker']]:
+                                    if 'Low' in prev_candle[candle['Ticker']] and \
+                                        prev_candle[candle['Ticker']]['Low'] < candle['Open']:
                                         entry = prev_candle[candle['Ticker']]['Low']
                                     else:
-                                        entry = candle['Open'] + candle['Spread']
+                                        entry = candle['Open'] - candle['Spread']
                                 elif asset.order_type == 'limit':
-                                    if 'High' in prev_candle[candle['Ticker']]:
+                                    if 'High' in prev_candle[candle['Ticker']] and \
+                                        prev_candle[candle['Ticker']]['High'] > candle['High']:
                                         entry = prev_candle[candle['Ticker']]['High']
                                     else:
-                                        entry = candle['Open'] + candle['Spread']
+                                        entry = candle['Open'] - candle['Spread']
 
                             # Check if the trade is already open
                             entered = False

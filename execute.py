@@ -1,20 +1,24 @@
 
 import copy
 import datetime as dt
+import random
+import time
+
 import numpy as np
 import pandas as pd
 #from google_sheets.google_sheets import GoogleSheets
 from backtest import StrategyConfig
-from degiro import DeGiro, IntervalType, Product, ResolutionType, Order, DataType
+from config import apply_filter, broker, execute, strategies, tickers
+from degiro import (DataType, DeGiro, IntervalType, Order, Product,
+                    ResolutionType)
 from indicators import Indicators
 from signals import Signals
-from config import strategies, tickers, broker, apply_filter
 
 
 class Trade:
 
-    def __init__(self, data:pd.DataFrame, signal:str, strategy:StrategyConfig,
-                 balance:float) -> None:
+    def __init__(self, data:pd.DataFrame=None, signal:str=None, strategy:StrategyConfig=None,
+                 balance:float=None) -> None:
 
         '''
         Generates the trade object for the backtest.
@@ -33,46 +37,78 @@ class Trade:
             Balance when entering the trade.
         '''
         
-        candle = data.iloc[-1]
-        strategy = copy.deepcopy(strategy)
-        asset = copy.deepcopy(strategy.assets[candle['Ticker']])
-
-        sldist = asset.sl * candle['distATR']
-        tpdist = asset.tp * candle['distATR']
-
-        self.datetime = candle['DateTime']
         self.entrytime =  dt.datetime.today().strftime('%Y-%m-%d %H:%M')
         self.exittime = None
-        self.ticker = candle['Ticker']
-        self.asset = asset
-        self.strategy = strategy
-        self.order = asset.order_type
-        self.signal = signal
-        self.entry = self.calculateEntry(candle, data.iloc[-2])
         self.exit = None
-        self.sl = self.entry - sldist if signal == 'long' else self.entry + sldist
-        self.tp = self.entry + tpdist if signal == 'long' else self.entry - tpdist
-        self.sldist = sldist
         self.returns = None
-        self.risk = asset.risk
         self.balance = balance
-        self.size = self.calculateSize()
+        self.signal = signal
         self.result = None
-        self.candle = candle
 
-    def calculateEntry(self, candle:dict, prev_candle:dict) -> float:
+        if isinstance(data,pd.DataFrame):
+            candle = data.iloc[-1]
+            self.candle = candle
+            self.datetime = candle['DateTime']
+            self.ticker = candle['Ticker']
+            self.entry = self.calculateEntry(candle, data.iloc[-2])
+        else:
+            self.ticker = None
 
+        if strategy != None:
+            strategy = copy.deepcopy(strategy)
+            self.strategy = strategy
+
+            asset = copy.deepcopy(strategy.assets[candle['Ticker']])
+            self.asset = asset
+            self.order = asset.order_type
+            self.risk = asset.risk
+            if self.ticker == None:
+                self.ticker = asset.name
+
+            sldist = asset.sl * candle['distATR']
+            tpdist = asset.tp * candle['distATR']
+            self.sldist = sldist
+        else:
+            self.asset = None
+
+        if data != None and strategy != None:
+            self.sl = self.entry - sldist if signal == 'long' else self.entry + sldist
+            self.tp = self.entry + tpdist if signal == 'long' else self.entry - tpdist
+
+        self.size = self.calculateSize()
+
+    def calculateEntry(self, candle:dict=None, prev_candle:dict=None) -> float:
+
+        if candle == None or prev_candle == None:
+            raise ValueError('Candle data is needed for the Entry to be calculated')
+        
         entry = candle['Open']
         if self.signal == 'long':
-            if self.order == 'stop' and 'High' in prev_candle[candle['Ticker']]:
+            if self.order == 'stop':
+                if 'High' in prev_candle[candle['Ticker']] and \
+                    prev_candle[candle['Ticker']]['High'] > candle['Open']:
                     entry = prev_candle[candle['Ticker']]['High']
-            elif self.order == 'limit' and 'Low' in prev_candle[candle['Ticker']]:
+                else:
+                    self.order = 'market'
+            elif self.order == 'limit':
+                if 'Low' in prev_candle[candle['Ticker']] and \
+                    prev_candle[candle['Ticker']]['Low'] < candle['Open']:
                     entry = prev_candle[candle['Ticker']]['Low']
+                else:
+                    self.order = 'market'
         elif self.signal == 'short':
-            if self.order == 'stop' and 'Low' in prev_candle[candle['Ticker']]:
-                entry = prev_candle[candle['Ticker']]['Low']
-            elif self.order == 'limit' and 'High' in prev_candle[candle['Ticker']]:
-                entry = prev_candle[candle['Ticker']]['High']
+            if self.order == 'stop':
+                if 'Low' in prev_candle[candle['Ticker']] and \
+                    prev_candle[candle['Ticker']]['Low'] < candle['Open']:
+                    entry = prev_candle[candle['Ticker']]['Low']
+                else:
+                    self.order = 'market'
+            elif self.order == 'limit':
+                if 'High' in prev_candle[candle['Ticker']] and \
+                    prev_candle[candle['Ticker']]['High'] > candle['Open']:
+                    entry = prev_candle[candle['Ticker']]['High']
+                else:
+                    self.order = 'market'
 
         return entry
 
@@ -87,13 +123,16 @@ class Trade:
         size: float
             Size of the trade.
         '''
-
+        
         if risk != None:
             self.risk = risk
         if balance != None:
             self.balance = balance
         if sldist != None:
             self.sldist = sldist
+        if risk == None and balance == None and sldist == None and self.asset == None:
+            raise ValueError('There is not enough data to calculate the \
+                             trade size. An asset should be specified for the trade.')
 
         self.size = int(self.risk * self.balance / self.sldist)
         if self.size > self.asset.max_size:
@@ -106,7 +145,7 @@ class Trade:
 
         return self.size
 
-    def exitTrade(self, exit:float, ) -> None:
+    def exitTrade(self, exit:float) -> None:
 
         '''
         Calculates the Exit variables.
@@ -136,48 +175,92 @@ class Trade:
 
         return self.__dict__
 
-def postOrder(trade:Trade) -> None:
+def postOrder(trade:Trade=None, product_id:str=None, side:str=None, 
+              order:str=None, entry:float=None, sl_dist:float=None,
+              size:float=None) -> None:
 
-    product = dg.searchProducts(trade.asset.id)[0]
-    side = 'BUY' if trade.side == 'long' else 'SELL'
+    if trade != None:
+        product_id = trade.asset.id
+        side = trade.signal
+        order = trade.order
+        entry = trade.entry
+        sl_dist = trade.sldist
+        size = trade.size
+    elif product_id == None or side == None or order == None or \
+        entry == None or sl_dist == None or size == None:
+        raise ValueError('Input a trade or some trade data.')
     
-    if trade.order == 'stop':
-        stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
-                else trade.entry - trade.candle['SLdist']/2
-        dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
-                    Order.Time.GTC, limit=trade.entry, stop_loss=stop)
-    elif trade.order == 'stoplimit':
-        dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
-                    Order.Time.GTC, stop_loss=trade.entry)
-    elif trade.order == 'limit':
-        dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
-                    Order.Time.GTC, limit=trade.entry)
-    else:
-        dg.tradeOrder(product, trade.size, side, Order.Type.MARKET, 
-                    Order.Time.GTC)
+    product = dg.searchProducts(product_id)[0]
+    side = 'BUY' if side == 'long' else 'SELL'
+    
+    limit = None
+    if execute:
+
+        if order == 'stoplimit':
+            limit = entry + sl_dist/2 if side == 'BUY' \
+                    else entry - sl_dist/2
+            dg.tradeOrder(product, int(size), side, Order.Type.STOPLIMIT, 
+                        Order.Time.GTC, limit=limit, stop_loss=entry)
+            
+        elif order == 'stop':
+            dg.tradeOrder(product, int(size), side, Order.Type.STOPLOSS, 
+                        Order.Time.GTC, stop_loss=entry)
+            
+        elif order == 'limit':
+            dg.tradeOrder(product, int(size), side, Order.Type.LIMIT,
+                        Order.Time.GTC, limit=entry)
+
+        elif order == 'market':
+            entry = dg.getQuote(product)['data']['lastPrice']
+            limit = entry + sl_dist/2 if side == 'BUY' \
+                    else entry - sl_dist/2
+            dg.tradeOrder(product, int(size), side, Order.Type.STOPLIMIT, 
+                        Order.Time.GTC, limit=limit, stop_loss=entry)
+            
+        else:
+                dg.tradeOrder(product, int(size), side, Order.Type.MARKET, 
+                            Order.Time.GTC)
+                
+    executions.append({'date':dt.datetime.today().strftime('%Y-%m-%d %H:%M'),
+                       'product':product, 'size':int(size), 'side':side, 
+                       'order':order, 'limit':limit, 'entry':entry})
 
 
 def enterOrders(trades:dict) -> None:
 
     for symbol in trades:
+
         df = pd.DataFrame(trades[symbol])
-        product = dg.searchProducts(symbol)[0]
+        initial_size = df['size'].sum()
+        df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
 
-        for side in df.groupby('signal'):
-            side = 'BUY' if side[0] == 'long' else 'SELL'
-            temp = side[1]
-
-        stop = trade.entry + trade.candle['SLdist']/2 if side == 'BUY' \
-                else trade.entry - trade.candle['SLdist']/2
-        if trade.order == 'stop':
-            dg.tradeOrder(product, trade.size, side, Order.Type.STOPLIMIT, 
-                        Order.Time.GTC, limit=trade.entry, stop_loss=stop)
-        elif trade.order == 'limit':
-            dg.tradeOrder(product, trade.size, side, Order.Type.LIMIT,
-                        Order.Time.GTC, limit=trade.entry)
+        total_size = df['size'].sum()
+        if total_size > 0:
+            side = 'long'
+        elif total_size < 0:
+            side = 'short'
         else:
-            dg.tradeOrder(product, trade.size, side, Order.Type.MARKET, 
-                        Order.Time.GTC)
+            side = None
+
+        if side != None:
+
+            df = df[df['signal'] == side]
+            df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
+            for order in df.groupby('order'):
+
+                size = order[1]['size'].sum()/initial_size * total_size 
+                for entry in order['entry'].groupby('entry'):
+
+                    # Check if there is enough balance 
+                    balance = getEquity()
+                    size = size if size*entry[0] <= balance else balance/entry[0]
+
+                    # Prepare trade
+                    trade = entry[1]['trade'].iloc[-1]
+                    postOrder(product_id=symbol, side=side[0], order=order[0], 
+                              entry=entry, sl_dist=trade.sldist, size=size)
+                    
+                    time.sleep(random.randint(40, 90))
         
 def getEquity() -> float:
 
@@ -195,9 +278,9 @@ indicators = Indicators(errors=False)
 
 
 # Prepare data needed for backtest
-strategies = []
 data = {}
 portfolio = {}
+executions = []
 for strat in strategies:
 
     # Prepare signal if exists
@@ -262,8 +345,49 @@ for strat in strategies:
             portfolio[t] = []
         
         if temp.iloc[-1][f'{strat}Entry'] > 0:
-            trade = Trade(temp, 'long', strategies[strat], )
-            portfolio[t].append(trade.to_dict())
+            trade = Trade(data=temp, signal='long', strategy=strategies[strat], 
+                          balance=getEquity())
+            portfolio[t].append({**trade.to_dict(), **{'trade':trade}})
 
 
 # Execute orders
+for symbol in portfolio:
+
+    df = pd.DataFrame(portfolio[symbol])
+    initial_size = df['size'].sum()
+    df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
+
+    total_size = df['size'].sum()
+    if total_size > 0:
+        side = 'long'
+    elif total_size < 0:
+        side = 'short'
+    else:
+        side = None
+
+    if side != None:
+
+        df = df[df['signal'] == side]
+        df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
+        for order in df.groupby('order'):
+
+            size = order[1]['size'].sum()/initial_size * total_size 
+            for entry in order['entry'].groupby('entry'):
+
+                # Check if there is enough balance 
+                balance = getEquity()
+                size = size if size*entry[0] <= balance else balance/entry[0]
+
+                # Prepare trade
+                trade = entry[1]['trade'].iloc[-1]
+                postOrder(product_id=symbol, side=side[0], order=order[0], 
+                            entry=entry, sl_dist=trade.sldist, size=size)
+                
+                time.sleep(random.randint(40, 90))
+
+
+while '09:00' < dt.datetime.today().strftime('%H:%M') and dt.datetime.today().strftime('%H:%M') < '17:30':
+
+    execute
+
+    time.sleep(random.randint(60,120))

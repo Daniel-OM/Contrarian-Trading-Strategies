@@ -653,13 +653,16 @@ class DeGiro(object):
                 payload=data_payload,
                 error_message='Could not get data')
 
-    def getQuote(self, product:Product, interval:str='P50Y') -> dict:
+    def getQuote(self, product:(dict or Product), interval:str='P50Y') -> dict:
         
         # Get instrument info
         if isinstance(product, str):
             temp = self.productInfo(product)
             vw_id = temp['vwdId']
             vw_type = temp['vwdIdentifierType']
+        elif isinstance(product, dict):
+            vw_id = product['vwdId']
+            vw_type = product['vwdIdentifierType']
         else:
             vw_id = product.props['vwdId']
             vw_type = product.props['vwdIdentifierType']
@@ -854,7 +857,7 @@ class DeGiro(object):
             'orderType': orderType,
             'productId': productId,
             'timeType': timeType,
-            'size': size,
+            'size': int(size),
             'price': limit,
             'stopPrice': stop_loss,
         }

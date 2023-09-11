@@ -2,7 +2,7 @@
 from backtest import AssetConfig, Commissions, StrategyConfig
 
 broker = 'degiro'
-
+execute = False
 apply_filter = True
 
 tickers = {
