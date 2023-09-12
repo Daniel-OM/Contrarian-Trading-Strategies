@@ -1,9 +1,13 @@
 
+import datetime as dt
 from backtest import AssetConfig, Commissions, StrategyConfig
 
+trades_url = 'execution'
 broker = 'degiro'
 execute = False
 apply_filter = True
+start_time = dt.datetime.strptime('09:00', '%H:%M').time() # dt.time(9, 0)
+end_time = dt.datetime.strptime('15:30', '%H:%M').time() # dt.time(15, 30)
 
 tickers = {
     'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'},

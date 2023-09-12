@@ -310,6 +310,9 @@ class DeGiro(object):
     session_id = None
     client_info = None
     confirmation_id = None
+    username = None
+    password = None
+    totp = None
 
     def __init__(self, username:str, password:str, totp:str=None):
 
@@ -350,20 +353,30 @@ class DeGiro(object):
         headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " \
                                 "Chrome/108.0.0.0 Safari/537.36"
 
-        if request_type == DeGiro.__DELETE_REQUEST:
-            response = requests.delete(url, headers=headers, json=payload)
-        elif request_type == DeGiro.__GET_REQUEST and cookie:
-            response = requests.get(url, headers=headers, cookies=cookie)
-        elif request_type == DeGiro.__GET_REQUEST:
-            response = requests.get(url, headers=headers, params=payload)
-        elif request_type == DeGiro.__POST_REQUEST and headers and data:
-            response = requests.post(url, headers=headers, params=payload, data=data)
-        elif request_type == DeGiro.__POST_REQUEST and post_params:
-            response = requests.post(url, headers=headers, params=post_params, json=payload)
-        elif request_type == DeGiro.__POST_REQUEST:
-            response = requests.post(url, headers=headers, json=payload)
-        else:
-            raise Exception(f'Unknown request type: {request_type}')
+        request = False
+        while not request:
+            try:
+                if request_type == DeGiro.__DELETE_REQUEST:
+                    response = requests.delete(url, headers=headers, json=payload)
+                elif request_type == DeGiro.__GET_REQUEST and cookie:
+                    response = requests.get(url, headers=headers, cookies=cookie)
+                elif request_type == DeGiro.__GET_REQUEST:
+                    response = requests.get(url, headers=headers, params=payload)
+                elif request_type == DeGiro.__POST_REQUEST and headers and data:
+                    response = requests.post(url, headers=headers, params=payload, data=data)
+                elif request_type == DeGiro.__POST_REQUEST and post_params:
+                    response = requests.post(url, headers=headers, params=post_params, json=payload)
+                elif request_type == DeGiro.__POST_REQUEST:
+                    response = requests.post(url, headers=headers, json=payload)
+                else:
+                    raise Exception(f'Unknown request type: {request_type}')
+                request = True
+            except Exception as e:
+                if not request:
+                    self.login()
+                else:
+                    raise e
+                request = True
         
         self.r = response
 
@@ -375,7 +388,7 @@ class DeGiro(object):
         else:
             raise Exception(f'{error_message} Response: {response.text}')
 
-    def login(self, username:str, password:str, totp:str=None) -> dict:
+    def login(self, username:str=None, password:str=None, totp:str=None) -> dict:
 
         '''
         Carries out the login to DeGiro.
@@ -394,6 +407,10 @@ class DeGiro(object):
         client_info_response: dict
             Contains the information of the client.
         '''
+
+        username = self.username if username == None else username
+        password = self.password if password == None else password
+        totp = self.totp if totp == None else totp
 
         # Request login
         login_payload = {

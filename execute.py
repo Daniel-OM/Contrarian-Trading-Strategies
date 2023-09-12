@@ -1,6 +1,7 @@
 
 import copy
 import datetime as dt
+import os
 import random
 import time
 
@@ -8,7 +9,8 @@ import numpy as np
 import pandas as pd
 #from google_sheets.google_sheets import GoogleSheets
 from backtest import StrategyConfig
-from config import apply_filter, broker, execute, strategies, tickers
+from config import (apply_filter, broker, end_time, execute, start_time,
+                    strategies, tickers, trades_url)
 from degiro import (DataType, DeGiro, IntervalType, Order, Product,
                     ResolutionType)
 from indicators import Indicators
@@ -53,6 +55,7 @@ class Trade:
             self.entry = self.calculateEntry(candle, data.iloc[-2])
         else:
             self.ticker = None
+            self.entry = None
 
         if strategy != None:
             strategy = copy.deepcopy(strategy)
@@ -139,8 +142,11 @@ class Trade:
             self.size = self.asset.max_size
         elif self.size < self.asset.min_size:
             self.size = self.asset.min_size
+        
+        if self.size * self.entry > self.balance:
+            self.size = int(self.balance/self.entry)
 
-        if self.balance < 0:
+        if self.balance <= 0:
             self.size = 0.0
 
         return self.size
@@ -270,124 +276,194 @@ def getPortfolio() -> list:
 
     return dg.getData(DataType.PORTFOLIO)
 
+def getQuote(product_id:str=None, product:Product=None):
+
+    if product_id != None:
+        product =  dg.searchProducts(product_id)[0]
+
+    quote = dg.getQuote(product)['data']
+    quote['tradingStartTime'] = dt.datetime.strptime(quote['tradingStartTime'], '%H:%M:%S').time()
+    quote['tradingEndTime'] = dt.datetime.strptime(quote['tradingEndTime'], '%H:%M:%S').time()
     
+    return quote
 
-dg = DeGiro('OneMade','Onemade3680')
-signals = Signals(backtest=True, side=Signals.Side.LONG, errors=False)
-indicators = Indicators(errors=False)
+def time_interval(start:dt.time, end:dt.time, seconds:bool=True):
+
+    reverse = False
+    if start > end:
+        start, end = end, start
+        reverse = True
+
+    delta = (end.hour - start.hour)*60 + end.minute - start.minute + (end.second - start.second)/60.0
+    if reverse:
+        delta = 24*60 - delta
+
+    return delta * 60 if seconds else delta
 
 
-# Prepare data needed for backtest
-data = {}
-portfolio = {}
-executions = []
-for strat in strategies:
+def getData(strategies:dict, get_portfolio:bool=True):
 
-    # Prepare signal if exists
-    if strat not in dir(signals):
-        print(f'{strat} not between the defined signals.')
-        continue
-    signal = getattr(signals, strat)
+    data = {}
+    portfolio = {}
+    for strat in strategies:
 
-    for t,c in strategies[strat].assets.items():
-        
-        strategies[strat].assets[t].id = tickers[t][broker]
+        # Prepare signal if exists
+        if strat not in dir(signals):
+            print(f'{strat} not between the defined signals.')
+            continue
+        signal = getattr(signals, strat)
 
-        # Get data
-        if t not in data:
-            products = dg.searchProducts(tickers[t][broker])
-            temp = dg.getCandles(Product(products[0]).id, resolution=ResolutionType.H1, 
+        for s,c in strategies[strat].assets.items():
+            
+            strategies[strat].assets[s].id = tickers[s][broker]
+            t = tickers[s][broker]
+            
+            # Get data
+            if t not in data:
+                product = dg.searchProducts(t)[0]
+
+                # Check if market is open for the asset
+                quote = getQuote(product=product)
+                if dt.datetime.today().time() < quote['tradingStartTime'] or quote['tradingEndTime'] < dt.datetime.today().time():
+                    data[t] = pd.DataFrame()
+                    continue
+                temp = dg.getCandles(Product(product).id, resolution=ResolutionType.H1, 
                                     interval=IntervalType.Y3)
-        else:
-            temp = data[t].copy()
+            else:
+                temp = data[t].copy()
 
-        # Add columns
-        temp.loc[:,'distATR'] = indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
-        temp.loc[:,'SLdist'] = temp['distATR'] * c.sl
-        temp.loc[:,'Ticker'] = [t]*len(temp)
-        temp.loc[:,'Date'] = pd.to_datetime(temp.index)
-        if 'DateTime' not in temp.columns and 'Date' in temp.columns:
-            temp.rename(columns={'Date':'DateTime'}, inplace=True)
-        
-        if 'Volume' not in temp.columns:
-            temp['Volume'] = [0]*len(temp)
-        
-        # Calculate signal and apply filter
-        temp = signal(df=temp, strat_name=strat)
-        if apply_filter and strategies[strat].filter != None and 'MA' in strategies[strat].filter:
-            period = int(strategies[strat].filter.split('_')[-1])
-            temp['filter'] = temp['Close'].rolling(period).mean()
-            temp[temp.columns[-2]] = np.where(temp['Close'] > temp['filter'], temp[temp.columns[-2]], 0)
-
-
-        # Data treatment
-        temp.sort_values('DateTime', inplace=True)
-        temp.loc[:,'DateTime'] = pd.to_datetime(temp['DateTime'], unit='s')
-        if temp['DateTime'].iloc[0].tzinfo != None:
-            temp['DateTime'] = temp['DateTime'].dt.tz_convert(None)
-        temp['Close'] = temp['Close'].fillna(method='ffill')
-        temp['Spread'] = temp['Spread'].fillna(method='ffill')
-        temp['Open'] = np.where(temp['Open'] != temp['Open'], temp['Close'], temp['Open'])
-        temp['High'] = np.where(temp['High'] != temp['High'], temp['Close'], temp['High'])
-        temp['Low'] = np.where(temp['Low'] != temp['Low'], temp['Close'], temp['Low'])
-
-        t = tickers[t][broker]
-        # Store data
-        if t in data:
-            for c in temp:
-                if c not in data[t]:
-                    data[t][c] = temp[c]
-        else:
-            data[t] = temp.copy()
-
-        # Store portfolio
-        if t not in portfolio:
-            portfolio[t] = []
-        
-        if temp.iloc[-1][f'{strat}Entry'] > 0:
-            trade = Trade(data=temp, signal='long', strategy=strategies[strat], 
-                          balance=getEquity())
-            portfolio[t].append({**trade.to_dict(), **{'trade':trade}})
+            # Add columns
+            temp['distATR'] = indicators.atr(n=20, method='s', dataname='ATR', new_df=temp)['ATR']
+            temp['SLdist'] = temp['distATR'] * c.sl
+            temp['Ticker'] = [s]*len(temp)
+            temp['Date'] = pd.to_datetime(temp.index)
+            if 'DateTime' not in temp.columns and 'Date' in temp.columns:
+                temp.rename(columns={'Date':'DateTime'}, inplace=True)
+            
+            if 'Volume' not in temp.columns:
+                temp['Volume'] = [0]*len(temp)
+            
+            # Calculate signal and apply filter
+            temp = signal(df=temp, strat_name=strat)
+            if apply_filter and strategies[strat].filter != None and 'MA' in strategies[strat].filter:
+                period = int(strategies[strat].filter.split('_')[-1])
+                temp['filter'] = temp['Close'].rolling(period).mean()
+                temp[temp.columns[-2]] = np.where(temp['Close'] > temp['filter'], temp[temp.columns[-2]], 0)
 
 
-# Execute orders
-for symbol in portfolio:
+            # Data treatment
+            temp.sort_values('DateTime', inplace=True)
+            temp['DateTime'] = pd.to_datetime(temp['DateTime'], unit='s')
+            if temp['DateTime'].iloc[0].tzinfo != None:
+                temp['DateTime'] = temp['DateTime'].dt.tz_convert(None)
+            temp['Close'] = temp['Close'].fillna(method='ffill')
+            temp['Spread'] = temp['Spread'].fillna(method='ffill')
+            temp['Open'] = np.where(temp['Open'] != temp['Open'], temp['Close'], temp['Open'])
+            temp['High'] = np.where(temp['High'] != temp['High'], temp['Close'], temp['High'])
+            temp['Low'] = np.where(temp['Low'] != temp['Low'], temp['Close'], temp['Low'])
 
-    df = pd.DataFrame(portfolio[symbol])
-    initial_size = df['size'].sum()
-    df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
+            # Store data
+            if t in data:
+                for c in temp:
+                    if c not in data[t]:
+                        data[t][c] = temp[c]
+            else:
+                data[t] = temp.copy()
 
-    total_size = df['size'].sum()
-    if total_size > 0:
-        side = 'long'
-    elif total_size < 0:
-        side = 'short'
+            if portfolio:
+                # Store portfolio
+                if t not in portfolio:
+                    portfolio[t] = []
+            
+                if temp.iloc[-1][f'{strat}Entry'] > 0:
+                    trade = Trade(data=temp, signal='long', strategy=strategies[strat], 
+                                balance=getEquity())
+                    portfolio[t].append({**trade.to_dict(), **{'trade':trade}})
+
+    if get_portfolio:
+        return data, portfolio
     else:
-        side = None
+        return data
 
-    if side != None:
 
-        df = df[df['signal'] == side]
+if __name__ == '__main__':
+
+    dg = DeGiro('OneMade','Onemade3680')
+    signals = Signals(backtest=True, side=Signals.Side.LONG, errors=False, verbose=False)
+    indicators = Indicators(errors=False)
+    executions = []
+
+
+    # Prepare data needed for backtest
+    data, portfolio = getData(strategies, get_portfolio=True)
+
+    # Execute orders
+    for symbol in portfolio:
+
+        df = pd.DataFrame(portfolio[symbol])
+        initial_size = df['size'].sum()
         df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
-        for order in df.groupby('order'):
 
-            size = order[1]['size'].sum()/initial_size * total_size 
-            for entry in order['entry'].groupby('entry'):
+        total_size = df['size'].sum()
+        if total_size > 0:
+            side = 'long'
+        elif total_size < 0:
+            side = 'short'
+        else:
+            side = None
 
-                # Check if there is enough balance 
-                balance = getEquity()
-                size = size if size*entry[0] <= balance else balance/entry[0]
+        if side != None:
 
-                # Prepare trade
-                trade = entry[1]['trade'].iloc[-1]
-                postOrder(product_id=symbol, side=side[0], order=order[0], 
-                            entry=entry, sl_dist=trade.sldist, size=size)
-                
-                time.sleep(random.randint(40, 90))
+            df = df[df['signal'] == side]
+            df['size'] = np.where(df['signal'] == 'short', -df['size'], df['size'])
+            for order in df.groupby('order'):
 
+                size = order[1]['size'].sum()/initial_size * total_size 
+                for entry in order['entry'].groupby('entry'):
 
-while '09:00' < dt.datetime.today().strftime('%H:%M') and dt.datetime.today().strftime('%H:%M') < '17:30':
+                    # Check if there is enough balance 
+                    balance = getEquity()
+                    size = size if size*entry[0] <= balance else balance/entry[0]
 
-    execute
+                    # Prepare trade
+                    trade = entry[1]['trade'].iloc[-1]
+                    postOrder(product_id=symbol, side=side[0], order=order[0], 
+                                entry=entry, sl_dist=trade.sldist, size=size)
+                    
+                    time.sleep(random.randint(40, 90))
+    
+    # Save portfolio to opened csv
+    df = pd.DataFrame(portfolio.values())
+    path = os.path.join(trades_url, 'open_trades.csv')
+    df.to_csv(path, mode='a', index=False, header=False if path else True)
 
-    time.sleep(random.randint(60,120))
+    # Continued execution
+    loop = False
+    while loop:
+
+        if start_time < dt.datetime.today().time() and dt.datetime.today().time() < end_time:
+
+            data = getData(strategies, get_portfolio=False)
+
+            # TODO! Check the exits for all the trades
+
+            time.sleep(random.randint(60,120))
+
+        # If market closed close execution
+        elif end_time <= dt.datetime.today().time():
+            loop = False
+
+        # If market has not opened wait till it opens
+        elif dt.datetime.today().time() < start_time:
+            for s in strategies:
+                for a in strategies[s].assets:
+                    quote = dg.getQuote(product_id=tickers[a][broker])['data']
+                    if quote['tradingStartTime'] < start_time:
+                        start_time = quote['tradingStartTime']
+                    if end_time < quote['tradingEndTime']:
+                        end_time = quote['tradingEndTime']
+                        
+            time.sleep( time_interval(dt.datetime.today().time(), start_time) )
+
+        else:
+            time.sleep(random.randint(60,120))
