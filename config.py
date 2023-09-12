@@ -2,12 +2,14 @@
 import datetime as dt
 from backtest import AssetConfig, Commissions, StrategyConfig
 
-trades_url = 'execution'
-broker = 'degiro'
-execute = False
-apply_filter = True
-start_time = dt.datetime.strptime('09:00', '%H:%M').time() # dt.time(9, 0)
-end_time = dt.datetime.strptime('15:30', '%H:%M').time() # dt.time(15, 30)
+trades_url = 'execution' # Directory where to store the files with the trades
+open_trades_name = 'open_trades.csv' # Name of the file contianing the open trades
+closed_trades_name = 'closed_trades.csv' # Name of the file contianing the closed trades
+broker = 'degiro' # Name of the broker from which to retrieve data
+execute = False # True to execute orders with broker
+apply_filter = True # True to apply MA filter to strategies
+start_time = dt.datetime.strptime('09:00', '%H:%M').time() # dt.time(9, 0) # Starting time to check
+end_time = dt.datetime.strptime('15:30', '%H:%M').time() # dt.time(15, 30) # Ending time to check
 
 tickers = {
     'SP500': {'yfinance':'500.PA', 'degiro':'LU1681048804'},

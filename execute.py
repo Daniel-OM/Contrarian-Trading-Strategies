@@ -10,7 +10,7 @@ import pandas as pd
 #from google_sheets.google_sheets import GoogleSheets
 from backtest import StrategyConfig
 from config import (apply_filter, broker, end_time, execute, start_time,
-                    strategies, tickers, trades_url)
+                    strategies, tickers, trades_url, open_trades_name)
 from degiro import (DataType, DeGiro, IntervalType, Order, Product,
                     ResolutionType)
 from indicators import Indicators
@@ -180,6 +180,43 @@ class Trade:
         self.exitTrade()
 
         return self.__dict__
+
+class TradesFiles:
+
+    def __init__(self, path:str='execution') -> None:
+        self.path = path
+
+    def getOpenTrades(self, file:str='open_trades.csv') -> pd.DataFrame:
+
+        if '.csv' in file:
+            trades = pd.read_csv(file)
+        elif '.xlsx' in file:
+            trades = pd.read_excel(file)
+
+        return trades
+    
+    def addOpenTrades(self, data:pd.DataFrame, file:str='open_trades.csv', mode:str='a') -> None:
+
+        path = os.path.join(self.path, 'open_trades.csv')
+        exists = os.path.exists(path)
+        if '.csv' in file:
+            data.to_csv(path, mode=mode, index=False, header=False if exists else True)
+        elif '.xlsx' in file:
+            with pd.ExcelWriter(path, mode=mode) as writer:
+                df.to_excel(writer, index=False, header=False if exists else True)
+
+    def deleteOpenTrade(self, data:pd.DataFrame, file:str='open_trades.csv') -> None:
+
+        old_data = self.getOpenTrades(file=file)
+        new_data = []
+        for d in old_data.to_dict('records'):
+            if d not in data.to_dict('records'):
+                new_data.append(d)
+        
+        self.addOpenTrades(data=pd.DataFrame(new_data), file=file, mode='w')
+    
+
+    
 
 def postOrder(trade:Trade=None, product_id:str=None, side:str=None, 
               order:str=None, entry:float=None, sl_dist:float=None,
@@ -391,6 +428,7 @@ if __name__ == '__main__':
     dg = DeGiro('OneMade','Onemade3680')
     signals = Signals(backtest=True, side=Signals.Side.LONG, errors=False, verbose=False)
     indicators = Indicators(errors=False)
+    files = TradesFiles(path=trades_url)
     executions = []
 
 
@@ -423,7 +461,7 @@ if __name__ == '__main__':
 
                     # Check if there is enough balance 
                     balance = getEquity()
-                    size = size if size*entry[0] <= balance else balance/entry[0]
+                    size = size if size*entry[0] <= balance else balance/entry[0] # Hay un problema con esto y el cierre de operaciones según las operaciones independientes
 
                     # Prepare trade
                     trade = entry[1]['trade'].iloc[-1]
@@ -434,8 +472,7 @@ if __name__ == '__main__':
     
     # Save portfolio to opened csv
     df = pd.DataFrame(portfolio.values())
-    path = os.path.join(trades_url, 'open_trades.csv')
-    df.to_csv(path, mode='a', index=False, header=False if path else True)
+    files.addOpenTrades(df, file=open_trades_name, mode='a')
 
     # Continued execution
     loop = False
@@ -444,7 +481,7 @@ if __name__ == '__main__':
         if start_time < dt.datetime.today().time() and dt.datetime.today().time() < end_time:
 
             data = getData(strategies, get_portfolio=False)
-
+            trades = files.getOpenTrades(file=open_trades_name)
             # TODO! Check the exits for all the trades
 
             time.sleep(random.randint(60,120))
@@ -463,7 +500,7 @@ if __name__ == '__main__':
                     if end_time < quote['tradingEndTime']:
                         end_time = quote['tradingEndTime']
                         
-            time.sleep( time_interval(dt.datetime.today().time(), start_time) )
+            time.sleep( time_interval(dt.datetime.today().time(), start_time, seconds=True) )
 
         else:
             time.sleep(random.randint(60,120))
