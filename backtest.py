@@ -186,7 +186,7 @@ class AssetConfig:
 
         return {
             'name': self.name,
-            'commission': self.commission, 
+            'commission': self.commission.to_dict(), 
             'risk': self.risk,
             'SL': self.sl, 
             'TP': self.tp, 

@@ -47,34 +47,37 @@ class Trade:
         self.signal = signal
         self.result = None
 
-        if isinstance(data,pd.DataFrame):
-            candle = data.iloc[-1]
-            self.candle = candle
-            self.datetime = candle['DateTime']
-            self.ticker = candle['Ticker']
-            self.entry = self.calculateEntry(candle, data.iloc[-2])
-        else:
-            self.ticker = None
-            self.entry = None
-
         if strategy != None:
             strategy = copy.deepcopy(strategy)
             self.strategy = strategy
 
-            asset = copy.deepcopy(strategy.assets[candle['Ticker']])
-            self.asset = asset
-            self.order = asset.order_type
-            self.risk = asset.risk
-            if self.ticker == None:
-                self.ticker = asset.name
-
-            sldist = asset.sl * candle['distATR']
-            tpdist = asset.tp * candle['distATR']
-            self.sldist = sldist
         else:
             self.asset = None
 
-        if data != None and strategy != None:
+        if isinstance(data, pd.DataFrame):
+            data = data.to_dict('records')
+            candle = data[-1]
+            self.candle = candle
+            self.datetime = candle['DateTime']
+            self.ticker = candle['Ticker']
+            self.entry = candle['Open']
+        else:
+            self.ticker = None
+            self.entry = None
+
+        if (isinstance(data, pd.DataFrame) or isinstance(data, list)) and \
+            strategy != None:
+
+            asset = copy.deepcopy(strategy.assets[candle['Ticker']])
+            self.asset = asset
+            self.order = asset.order_type
+            self.entry = self.calculateEntry(candle, data[-2])
+            self.risk = asset.risk
+            if self.ticker == None:
+                self.ticker = asset.name
+            sldist = asset.sl * candle['distATR']
+            tpdist = asset.tp * candle['distATR']
+            self.sldist = sldist
             self.sl = self.entry - sldist if signal == 'long' else self.entry + sldist
             self.tp = self.entry + tpdist if signal == 'long' else self.entry - tpdist
 
@@ -88,28 +91,28 @@ class Trade:
         entry = candle['Open']
         if self.signal == 'long':
             if self.order == 'stop':
-                if 'High' in prev_candle[candle['Ticker']] and \
-                    prev_candle[candle['Ticker']]['High'] > candle['Open']:
-                    entry = prev_candle[candle['Ticker']]['High']
+                if 'High' in prev_candle and \
+                    prev_candle['High'] > candle['Open']:
+                    entry = prev_candle['High']
                 else:
                     self.order = 'market'
             elif self.order == 'limit':
-                if 'Low' in prev_candle[candle['Ticker']] and \
-                    prev_candle[candle['Ticker']]['Low'] < candle['Open']:
-                    entry = prev_candle[candle['Ticker']]['Low']
+                if 'Low' in prev_candle and \
+                    prev_candle['Low'] < candle['Open']:
+                    entry = prev_candle['Low']
                 else:
                     self.order = 'market'
         elif self.signal == 'short':
             if self.order == 'stop':
-                if 'Low' in prev_candle[candle['Ticker']] and \
-                    prev_candle[candle['Ticker']]['Low'] < candle['Open']:
-                    entry = prev_candle[candle['Ticker']]['Low']
+                if 'Low' in prev_candle and \
+                    prev_candle['Low'] < candle['Open']:
+                    entry = prev_candle['Low']
                 else:
                     self.order = 'market'
             elif self.order == 'limit':
-                if 'High' in prev_candle[candle['Ticker']] and \
-                    prev_candle[candle['Ticker']]['High'] > candle['Open']:
-                    entry = prev_candle[candle['Ticker']]['High']
+                if 'High' in prev_candle and \
+                    prev_candle['High'] > candle['Open']:
+                    entry = prev_candle['High']
                 else:
                     self.order = 'market'
 
@@ -133,7 +136,9 @@ class Trade:
             self.balance = balance
         if sldist != None:
             self.sldist = sldist
-        if risk == None and balance == None and sldist == None and self.asset == None:
+        if self.risk == None or self.balance == None or self.sldist == None or self.asset == None \
+            or self.asset == None:
+            print(self.risk, self.balance, self.sldist, self.asset)
             raise ValueError('There is not enough data to calculate the \
                              trade size. An asset should be specified for the trade.')
 
@@ -165,6 +170,7 @@ class Trade:
         self.exittime = dt.datetime.today().strftime('%Y-%m-%d %H:%M')
         self.exit = exit
         self.returns = exit - self.entry if self.signal == 'long' else self.entry - exit
+        self.result = self.returns * self.size
     
     def to_dict(self):
 
@@ -177,40 +183,113 @@ class Trade:
             Contains the data.
         '''
 
-        self.exitTrade()
+        # self.exitTrade()
+        self.strategy = self.strategy.to_dict()
+        self.asset = self.asset.to_dict()
 
         return self.__dict__
 
 class TradesFiles:
 
-    def __init__(self, path:str='execution') -> None:
+    def __init__(self, path:str='execution', verbose:bool=False) -> None:
         self.path = path
+        self.verbose = verbose
 
+    def _generateTrade(self) -> dict:
+
+        strategy = list(strategies.values())[random.randint(0,len(strategies)-1)]
+        ticker = list(strategy.assets.keys()) \
+                [random.randint(0,len(strategy.assets) - 1)]
+        
+        open_p = random.randint(100000, 110000)/10000
+        data = [{
+            'DateTime': (dt.datetime.today() - dt.timedelta(days=random.randint(1,400))),
+            'Open':random.randint(100000, 110000)/10000,
+            'High': open_p * abs(1+random.gauss(0,0.02)),
+            'Low': open_p * -abs(1+random.gauss(0,0.02)),
+            'Close': open_p * (1+random.gauss(0,0.02)),
+            'Volume': random.randint(1,10000),
+            'Spread': 0,
+            'distATR': random.randint(10, 100)/10000,
+            'Ticker': ticker,
+        }]
+        open_p *= (1+random.gauss(0,0.02))
+        data.append({
+            'DateTime': (data[0]['DateTime'] + dt.timedelta(days=1)),
+            'Open': open_p,
+            'High': open_p * abs(1+random.gauss(0,0.02)),
+            'Low': open_p * -abs(1+random.gauss(0,0.02)),
+            'Close': open_p * (1+random.gauss(0,0.02)),
+            'Volume': random.randint(1,10000),
+            'Spread': 0,
+            'distATR': random.randint(10, 100)/10000,
+            'Ticker': ticker,
+        })
+
+        trade = Trade(
+            data= pd.DataFrame(data),
+            signal= 'long' if random.randint(0,1) else 'short',
+            strategy= strategy,
+            balance= random.randint(1000, 5000)
+        )
+        trade.exitTrade(exit=trade.entry * (1 + random.randint(-10, 10)/100000))
+        
+        return trade.to_dict()
+
+    def _generateTrades(self, n:int=20) -> pd.DataFrame:
+
+        return pd.DataFrame([self._generateTrade() for i in range(n)])
+
+    def openTradesQty(self, file:str='open_trades.csv') -> int:
+
+        data = self.getOpenTrades(file=file)
+
+        return len(data)
+    
     def getOpenTrades(self, file:str='open_trades.csv') -> pd.DataFrame:
 
-        if '.csv' in file:
-            trades = pd.read_csv(file)
-        elif '.xlsx' in file:
-            trades = pd.read_excel(file)
+        path = os.path.join(self.path, file)
+        try:
+            if '.csv' in file:
+                trades = pd.read_csv(path)
+            elif '.xlsx' in file:
+                trades = pd.read_excel(path)
+        except Exception as e:
+            if e.__str__() == 'No columns to parse from file' and self.verbose:
+                print('File is empty')
+                trades = pd.DataFrame()
 
         return trades
     
     def addOpenTrades(self, data:pd.DataFrame, file:str='open_trades.csv', mode:str='a') -> None:
 
-        path = os.path.join(self.path, 'open_trades.csv')
+        path = os.path.join(self.path, file)
         exists = os.path.exists(path)
+        trades_qty = self.openTradesQty(file=file)
         if '.csv' in file:
-            data.to_csv(path, mode=mode, index=False, header=False if exists else True)
+            data.to_csv(path, mode=mode, index=False, header=True \
+                        if not exists or mode=='w' or trades_qty<=0 else False)
         elif '.xlsx' in file:
             with pd.ExcelWriter(path, mode=mode) as writer:
-                df.to_excel(writer, index=False, header=False if exists else True)
+                data.to_excel(writer, index=False, header=True \
+                            if not exists or mode=='w' or trades_qty<=0 else False)
 
     def deleteOpenTrade(self, data:pd.DataFrame, file:str='open_trades.csv') -> None:
 
+        if isinstance(data, pd.DataFrame):
+            data = data.to_dict('records')
+        if isinstance(data, pd.Series):
+            data = [dict(data)]
+        if isinstance(data, dict):
+            data = [data]
+
         old_data = self.getOpenTrades(file=file)
+        # old_dict = {
+        #     f"{d['entrytime']}-{d['ticker']}-{d['entry']}-{d['strategy']}": d for d in old_data.to_dict('records'),
+        # }
         new_data = []
         for d in old_data.to_dict('records'):
-            if d not in data.to_dict('records'):
+            if d not in data:
                 new_data.append(d)
         
         self.addOpenTrades(data=pd.DataFrame(new_data), file=file, mode='w')
@@ -422,6 +501,17 @@ def getData(strategies:dict, get_portfolio:bool=True):
     else:
         return data
 
+def testTradeFiles():
+
+    files = TradesFiles()
+    trades = files._generateTrades()
+    files.addOpenTrades(trades, mode='w')
+    open = files.getOpenTrades()
+    print(len(open))
+    print(open.iloc[4])
+    files.deleteOpenTrade(open.iloc[4])
+    open = files.getOpenTrades()
+    print(len(open))
 
 if __name__ == '__main__':
 
